@@ -17,6 +17,7 @@ import {
   fetchClusterAnalyses,
   fetchClusterAnalysisData,
   fetchClusterUiSetups,
+  saveClusterUiSetup,
   fetchPottsClusterInfo,
   fetchSystem,
 } from '../api/projects';
@@ -174,6 +175,8 @@ export default function SamplingVizPage() {
   const [energyLoadLimit, setEnergyLoadLimit] = useState(1500);
   const [energyGraphMode, setEnergyGraphMode] = useState('histogram');
   const [energySampleStyles, setEnergySampleStyles] = useState({});
+  const [energyColorSets, setEnergyColorSets] = useState([]);
+  const [energyColorSetupId, setEnergyColorSetupId] = useState('');
   const [energyResidueSelectionId, setEnergyResidueSelectionId] = useState('');
   const [residueSelectionSetups, setResidueSelectionSetups] = useState([]);
   const [analysisEdgeMode, setAnalysisEdgeMode] = useState('model');
@@ -392,7 +395,27 @@ export default function SamplingVizPage() {
     fetchClusterUiSetups(projectId, systemId, selectedClusterId, { setupType: 'residue_selection' })
       .then((response) => setResidueSelectionSetups(Array.isArray(response?.setups) ? response.setups : []))
       .catch(() => setResidueSelectionSetups([]));
+    fetchClusterUiSetups(projectId, systemId, selectedClusterId, { setupType: 'energy_color_sets' })
+      .then((response) => {
+        const setup = response?.setups?.[0];
+        setEnergyColorSetupId(setup?.setup_id || '');
+        setEnergyColorSets(setup?.payload?.color_sets || []);
+      })
+      .catch(() => setEnergyColorSets([]));
   }, [selectedClusterId, loadClusterInfo, loadAnalyses, projectId, systemId]);
+
+  const persistEnergyColorSets = useCallback((colorSets) => {
+    setEnergyColorSets(colorSets);
+    if (!selectedClusterId) return;
+    saveClusterUiSetup(projectId, systemId, selectedClusterId, {
+      setup_type: 'energy_color_sets',
+      setup_id: energyColorSetupId || undefined,
+      name: 'Shared energy graph color sets',
+      payload: { color_sets: colorSets },
+    }).then((saved) => {
+      if (saved?.setup_id) setEnergyColorSetupId(saved.setup_id);
+    }).catch(() => {});
+  }, [energyColorSetupId, projectId, selectedClusterId, systemId]);
 
   useEffect(() => {
     if (!selectedClusterId) return;
@@ -1206,7 +1229,9 @@ export default function SamplingVizPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[340px_320px_minmax(0,1fr)] gap-4">
+      <div className={`grid grid-cols-1 gap-4 ${activeExplorerTab === 'js'
+        ? 'xl:grid-cols-[340px_320px_minmax(0,1fr)]'
+        : 'xl:grid-cols-[340px_minmax(0,1fr)]'}`}>
         <aside className="space-y-3">
           <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3 space-y-3">
             <div className="space-y-1">
@@ -1448,6 +1473,7 @@ export default function SamplingVizPage() {
           </div>
         </aside>
 
+        {activeExplorerTab === 'js' && (
         <aside className="space-y-3">
           <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3 space-y-3">
             <div>
@@ -1529,6 +1555,7 @@ export default function SamplingVizPage() {
             })}
           </div>
         </aside>
+        )}
 
         <main className="space-y-4">
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-800 bg-gray-900/40 p-2">
@@ -1786,6 +1813,8 @@ export default function SamplingVizPage() {
                     [seriesId]: { ...(previous[seriesId] || {}), color },
                   }))}
                   showLineStyles
+                  savedColorSets={energyColorSets}
+                  onSavedColorSetsChange={persistEnergyColorSets}
                   onStyleChange={(seriesId, patch) => setEnergySampleStyles((previous) => ({
                     ...previous,
                     [seriesId]: { ...(previous[seriesId] || {}), ...patch },

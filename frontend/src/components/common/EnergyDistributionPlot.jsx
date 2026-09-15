@@ -21,29 +21,6 @@ const DISTINCT_ENERGY_COLORS = [
   '#2563eb', '#be123c', '#65a30d', '#7c3aed', '#ea580c',
   '#0891b2', '#c026d3', '#a16207', '#475569', '#059669',
 ];
-const ENERGY_COLOR_SETS_STORAGE_KEY = 'phase.energyColorSets.v1';
-
-function readSavedEnergyColorSets() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(ENERGY_COLOR_SETS_STORAGE_KEY) || '[]');
-    return Array.isArray(parsed)
-      ? parsed.filter((item) => item && Array.isArray(item.colors) && item.colors.length)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeSavedEnergyColorSets(colorSets) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(ENERGY_COLOR_SETS_STORAGE_KEY, JSON.stringify(colorSets));
-  } catch {
-    // Color presets are a convenience; plotting must still work if browser
-    // storage is disabled or full.
-  }
-}
 
 function hslToHex(hue, saturation, lightness) {
   const s = saturation / 100;
@@ -239,13 +216,14 @@ export function EnergySeriesSelectorButton({
   showColors = false,
   showLineStyles = false,
   onStyleChange = null,
+  savedColorSets = [],
+  onSavedColorSetsChange = null,
   dark = false,
   label = 'Select trajectories',
 }) {
   const [open, setOpen] = useState(false);
   const [autoColorVariant, setAutoColorVariant] = useState(0);
   const [copyColorSourceId, setCopyColorSourceId] = useState('');
-  const [savedColorSets, setSavedColorSets] = useState(readSavedEnergyColorSets);
   const [selectedColorSetId, setSelectedColorSetId] = useState('');
   const entries = useMemo(
     () =>
@@ -270,10 +248,7 @@ export function EnergySeriesSelectorButton({
   const copyColorSource = entries.find((entry) => entry.id === copyColorSourceId) || null;
   const selectedColorSet = savedColorSets.find((item) => item.id === selectedColorSetId) || null;
 
-  const updateSavedColorSets = (next) => {
-    setSavedColorSets(next);
-    writeSavedEnergyColorSets(next);
-  };
+  const updateSavedColorSets = (next) => onSavedColorSetsChange?.(next);
 
   const setEntry = (id, checked) => {
     const next = new Set(selectedIds || []);
@@ -419,7 +394,7 @@ export function EnergySeriesSelectorButton({
             ) : null}
             {showColors && onColorChange ? (
               <div className="border-b border-gray-800 px-4 py-2 text-[11px] text-gray-400">
-                Click the generator repeatedly to try different palettes. Saved sets preserve active-sample order and length; loading onto more samples colors the extras black. To reuse one exact color, click <strong className="text-gray-200">Copy color</strong> beside its sample, then <strong className="text-gray-200">Apply here</strong> beside the target.
+                Click the generator repeatedly to try different palettes. Saved sets preserve active-sample order and length; loading onto more samples colors the extras black. To reuse one exact color, click <strong className="text-gray-200">Copy color</strong> beside its sample, then <strong className="text-black-1s00">Apply here</strong> beside the target.
               </div>
             ) : null}
             <div className="max-h-[60vh] overflow-y-auto px-4 py-3">

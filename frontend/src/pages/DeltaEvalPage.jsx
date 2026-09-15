@@ -12,7 +12,7 @@ import EnergyDistributionPlot, {
   pickEnergyColor,
   useEnergySeriesSelection,
 } from '../components/common/EnergyDistributionPlot';
-import { deleteClusterAnalysis, fetchClusterAnalyses, fetchClusterAnalysisData, fetchClusterUiSetups, fetchPottsClusterInfo, fetchSystem } from '../api/projects';
+import { deleteClusterAnalysis, fetchClusterAnalyses, fetchClusterAnalysisData, fetchClusterUiSetups, saveClusterUiSetup, fetchPottsClusterInfo, fetchSystem } from '../api/projects';
 import { fetchJobStatus, submitDeltaEnergyJob, submitEndpointFrustrationJob } from '../api/jobs';
 
 function clamp01(x) {
@@ -300,6 +300,8 @@ export default function DeltaEvalPage() {
   const [deltaEnergyGraphMode, setDeltaEnergyGraphMode] = useState('histogram');
   const [deltaEnergySeriesColors, setDeltaEnergySeriesColors] = useState({});
   const [deltaEnergySeriesStyles, setDeltaEnergySeriesStyles] = useState({});
+  const [energyColorSets, setEnergyColorSets] = useState([]);
+  const [energyColorSetupId, setEnergyColorSetupId] = useState('');
   const [activeTab, setActiveTab] = useState('delta_energy');
   const [runPanelOpen, setRunPanelOpen] = useState(false);
   const [deltaEnergySeed, setDeltaEnergySeed] = useState(0);
@@ -474,7 +476,27 @@ export default function DeltaEvalPage() {
     fetchClusterUiSetups(projectId, systemId, selectedClusterId, { setupType: 'residue_selection' })
       .then((res) => setResidueSelectionSetups(Array.isArray(res?.setups) ? res.setups : []))
       .catch(() => setResidueSelectionSetups([]));
+    fetchClusterUiSetups(projectId, systemId, selectedClusterId, { setupType: 'energy_color_sets' })
+      .then((res) => {
+        const setup = res?.setups?.[0];
+        setEnergyColorSetupId(setup?.setup_id || '');
+        setEnergyColorSets(setup?.payload?.color_sets || []);
+      })
+      .catch(() => setEnergyColorSets([]));
   }, [selectedClusterId, loadClusterInfo, loadAnalyses, projectId, systemId]);
+
+  const persistEnergyColorSets = useCallback((colorSets) => {
+    setEnergyColorSets(colorSets);
+    if (!selectedClusterId) return;
+    saveClusterUiSetup(projectId, systemId, selectedClusterId, {
+      setup_type: 'energy_color_sets',
+      setup_id: energyColorSetupId || undefined,
+      name: 'Shared energy graph color sets',
+      payload: { color_sets: colorSets },
+    }).then((saved) => {
+      if (saved?.setup_id) setEnergyColorSetupId(saved.setup_id);
+    }).catch(() => {});
+  }, [energyColorSetupId, projectId, selectedClusterId, systemId]);
 
   const activeAnalysisType = activeTab === 'delta_energy' ? 'delta_energy' : 'endpoint_frustration';
 
@@ -1554,6 +1576,8 @@ export default function DeltaEvalPage() {
                         [seriesId]: color,
                       }))}
                       showLineStyles
+                      savedColorSets={energyColorSets}
+                      onSavedColorSetsChange={persistEnergyColorSets}
                       onStyleChange={(seriesId, patch) => setDeltaEnergySeriesStyles((previous) => ({
                         ...previous,
                         [seriesId]: { ...(previous[seriesId] || {}), ...patch },
