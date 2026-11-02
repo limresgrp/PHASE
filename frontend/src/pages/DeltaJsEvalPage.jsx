@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CircleHelp, Play, X } from 'lucide-react';
 import Plot from 'react-plotly.js';
 
@@ -126,6 +126,7 @@ function aboLabel(dA, dB) {
 export default function DeltaJsEvalPage() {
   const { projectId, systemId } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [system, setSystem] = useState(null);
   const [loadingSystem, setLoadingSystem] = useState(true);
@@ -887,6 +888,7 @@ export default function DeltaJsEvalPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" onClick={() => navigate(`/projects/${projectId}/systems/${systemId}/sampling/distance${selectedClusterId ? `?cluster_id=${encodeURIComponent(selectedClusterId)}` : ''}`)} className="rounded-md border border-gray-700 px-3 py-2 text-xs text-gray-200 hover:border-cyan-500">Distance-conditioned JS</button>
           <button
             type="button"
             onClick={() => setRunPanelOpen(true)}

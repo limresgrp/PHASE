@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -139,22 +140,45 @@ def delete_state(
     if state is None:
         raise FileNotFoundError(f"State '{state_id}' not found in system '{system_id}'.")
 
-    system_dir = store.ensure_directories(project_id, system_id)["system_dir"].resolve()
-    for field in ("descriptor_file", "descriptor_metadata_file", "trajectory_file", "pdb_file"):
+    dirs = store.ensure_directories(project_id, system_id)
+    system_dir = dirs["system_dir"].resolve()
+    states_dir = dirs["states_dir"].resolve()
+    states_dir.relative_to(system_dir)
+    state_dir = store._state_dir(project_id, system_id, state).absolute()
+    if state_dir.parent.resolve() != states_dir or state_dir.name in {"", ".", ".."}:
+        raise ValueError(f"Invalid storage folder for state '{state_id}': {state_dir}")
+
+    for field in ("descriptor_file", "descriptor_metadata_file", "trajectory_file", "pdb_file",
+                  "metastable_labels_file", "metastable_metadata_file"):
         rel_path = getattr(state, field, None)
         if not rel_path:
             continue
-        try:
-            abs_path = store.resolve_path(project_id, system_id, rel_path).resolve()
-            abs_path.relative_to(system_dir)
-        except Exception:
-            # Never delete external/original source files.
+        stored_path = store.resolve_path(project_id, system_id, rel_path).absolute()
+        # The folder deletion below owns these paths, including the metadata
+        # that hydrates the state list. Do not follow a state-folder symlink.
+        if stored_path.is_relative_to(state_dir):
             continue
         try:
-            abs_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+            abs_path = stored_path.resolve()
+            abs_path.relative_to(system_dir)
+        except ValueError:
+            # Never delete external/original source files.
+            continue
+        abs_path.unlink(missing_ok=True)
 
+    if state_dir.is_symlink():
+        state_dir.unlink()
+    elif state_dir.exists():
+        shutil.rmtree(state_dir)
+
+    system.metastable_states = [
+        meta for meta in (system.metastable_states or [])
+        if str(meta.get("macro_state_id") or "") != str(state_id)
+    ]
+    if not system.metastable_states:
+        system.metastable_locked = False
+        system.metastable_model_dir = None
+        system.analysis_mode = "macro" if system.macro_locked else None
     system.states.pop(state_id, None)
     refresh_system_metadata(system)
     store.save_system(system)

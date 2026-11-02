@@ -74,7 +74,7 @@ const MolstarTrajectoryViewer = forwardRef(function MolstarTrajectoryViewer(
     };
   }, [onError, setViewerStatus]);
 
-  const loadStructure = useCallback(async ({ structureUrl, structureData, structureName }) => {
+  const loadStructure = useCallback(async ({ structureUrl, structureData, structureName, presetParams }) => {
     const plugin = pluginRef.current;
     if (!plugin) throw new Error('Mol* is not ready yet.');
     const topology = inferTopology(structureName);
@@ -86,7 +86,7 @@ const MolstarTrajectoryViewer = forwardRef(function MolstarTrajectoryViewer(
           ? await plugin.builders.data.rawData({ data: structureData, label: structureName })
           : await plugin.builders.data.download({ url: structureUrl, isBinary: topology.isBinary, label: structureName }, { state: { isGhost: true } });
         const trajectory = await plugin.builders.structure.parseTrajectory(data, topology.format);
-        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default');
+        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', presetParams);
       });
       setViewerStatus('ready');
     } catch (err) {
@@ -143,6 +143,7 @@ const MolstarTrajectoryViewer = forwardRef(function MolstarTrajectoryViewer(
   useImperativeHandle(ref, () => ({
     loadStructure,
     loadTrajectory,
+    getPlugin: () => pluginRef.current,
   }), [loadStructure, loadTrajectory]);
 
   return (

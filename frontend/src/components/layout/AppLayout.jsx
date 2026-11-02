@@ -77,7 +77,7 @@ export default function AppLayout({ children }) {
             </button>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-white">PHASE</h1>
-              <p className="text-xs text-gray-400">Causal Analysis Pipeline</p>
+              <p className="text-xs text-gray-400">Encoding global protein ensembles with local Hamiltonians and all-atom backmapping</p>
             </div>
           </div>
           <nav className="flex items-center space-x-2">

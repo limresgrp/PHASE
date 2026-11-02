@@ -14,6 +14,7 @@ import DeltaEvalPage from './pages/DeltaEvalPage';
 import ResidueSelectionPage from './pages/ResidueSelectionPage';
 import DeltaCommitment3DPage from './pages/DeltaCommitment3DPage';
 import DeltaJsEvalPage from './pages/DeltaJsEvalPage';
+import DistanceAnalysisPage from './pages/DistanceAnalysisPage';
 import DeltaJs3DPage from './pages/DeltaJs3DPage';
 import DeltaJsTablePage from './pages/DeltaJsTablePage';
 import TransientStatesPage from './pages/TransientStatesPage';
@@ -62,6 +63,10 @@ export default function App() {
           <Route
             path="/projects/:projectId/systems/:systemId/residue_selections"
             element={<ResidueSelectionPage />}
+          />
+          <Route
+            path="/projects/:projectId/systems/:systemId/sampling/distance"
+            element={<DistanceAnalysisPage />}
           />
           <Route
             path="/projects/:projectId/systems/:systemId/sampling/delta_js"

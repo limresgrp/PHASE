@@ -32,6 +32,13 @@ Schemas are documented in `docs/metadata/`:
 - `docs/metadata/potts_model.md`
 - `docs/metadata/sample.md`
 
+Optional, frame-aligned C-alpha pair distances can be built incrementally for
+an existing cluster. See [Distance cache infrastructure](docs/distance_cache.md)
+for console/CLI usage, storage, and the legacy single-bin fallback.
+The **Distance analysis** workspace page provides pair histograms, conditional
+joint-state heatmaps, saved distance presets, and background conditional-JS jobs.
+See [Distance Analysis help](docs/distance_analysis.md) for interpretation.
+
 ## Typical Workflow (Web Server)
 
 1. **Create a project**

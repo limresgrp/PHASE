@@ -118,7 +118,7 @@ export function StateCard({
             type="text"
             value={residueSelection}
             onChange={(e) => setResidueSelection(e.target.value)}
-            placeholder="protein (default), e.g. resnum 10-300"
+            placeholder="protein (default), e.g. resid 100 to 150"
             className="w-full bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-white"
           />
           <p className="text-[11px] text-gray-500 mt-1">Applied as: protein and (&lt;filter&gt;).</p>

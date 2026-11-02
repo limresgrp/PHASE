@@ -8,6 +8,7 @@ from backend.api.v1.routes import (
     analysis,
     clusters,
     descriptors,
+    distances,
     jobs,
     metastable,
     projects,
@@ -22,6 +23,7 @@ api_router.include_router(projects.router)
 api_router.include_router(systems.router)
 api_router.include_router(states.router)
 api_router.include_router(descriptors.router)
+api_router.include_router(distances.router)
 api_router.include_router(metastable.router)
 api_router.include_router(clusters.router)
 api_router.include_router(analysis.router)
