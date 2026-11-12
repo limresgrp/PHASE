@@ -183,8 +183,9 @@ def _compute_dihedrals_for_frame(positions: np.ndarray, idxs: np.ndarray) -> np.
 def _build_named_dihedral_indices(
     residues: mda.core.groups.ResidueGroup,
     residue_index_map: Dict[int, int],
+    *, by_resindex: bool = False,
 ) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
-    extractor = FeatureExtractor()
+    extractor = FeatureExtractor(use_coordinate_neighbors=by_resindex)
     selections = extractor._build_dihedral_selections(residues)
     out: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
     for name in DIHEDRAL_KEYS:
@@ -199,7 +200,7 @@ def _build_named_dihedral_indices(
                 continue
             if atom_count != 4:
                 continue
-            residue_col = residue_index_map.get(int(residue.resid))
+            residue_col = residue_index_map.get(int(residue.ix if by_resindex else residue.resid))
             if residue_col is None:
                 continue
             idx_rows.append(tuple(int(atom.index) for atom in atom_group))
@@ -319,12 +320,22 @@ def build_sample_backmapping_dataset(
         raise ValueError(f"Selection '{selection}' yielded no atoms for state '{state_id}'.")
 
     residue_index_map = _build_residue_index_map([str(key) for key in residue_keys.tolist()])
+    reference_aligned = state.alignment_status in {"reference", "aligned", "partial"}
+    if reference_aligned:
+        from phase.workflows.reference_states import canonical_mapping
+        correspondence = canonical_mapping(store, system, state)
+        residue_index_map = {}
+        for column, key in enumerate(residue_keys.tolist()):
+            selected = universe.select_atoms(correspondence[str(key)]).residues
+            if len(selected) != 1:
+                raise ValueError(f"Canonical backmapping residue {key} does not resolve uniquely.")
+            residue_index_map[int(selected[0].ix)] = column
     atom_residue_index = np.full(atoms.n_atoms, -1, dtype=np.int32)
     atom_resids = np.asarray([int(atom.resid) for atom in atoms], dtype=np.int32)
     atom_names = np.asarray([str(atom.name) for atom in atoms], dtype=str)
     atom_index_to_local = {int(atom.index): int(idx_atom) for idx_atom, atom in enumerate(atoms)}
     for idx_atom, atom in enumerate(atoms):
-        mapped = residue_index_map.get(int(atom.resid))
+        mapped = residue_index_map.get(int(atom.resindex if reference_aligned else atom.resid))
         if mapped is not None:
             atom_residue_index[idx_atom] = int(mapped)
 
@@ -332,7 +343,7 @@ def build_sample_backmapping_dataset(
     coordinates = np.zeros((n_rows, atoms.n_atoms, 3), dtype=np.float32)
     dihedrals = np.full((n_rows, n_residues, len(DIHEDRAL_KEYS)), np.nan, dtype=np.float32)
 
-    dihedral_indices = _build_named_dihedral_indices(atoms.residues, residue_index_map)
+    dihedral_indices = _build_named_dihedral_indices(atoms.residues, residue_index_map, by_resindex=reference_aligned)
     dihedral_atom_indices, dihedral_mask = _build_dense_dihedral_atom_indices(
         dihedral_indices,
         n_residues=n_residues,

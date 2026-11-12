@@ -11,6 +11,7 @@ import re
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from phase.io.residue_names import residue_names_for_keys
 
 import numpy as np
 
@@ -83,6 +84,13 @@ def _derive_cluster_residue_display_labels(
     except Exception:
         return labels
 
+    reference_records = system_meta.reference_residue_records or []
+    if reference_records:
+        names = residue_names_for_keys(labels, reference_records=reference_records)
+        identities = {str(row["residue_key"]): f"{row['resid']}{row.get('insertion_code') or ''}"
+                      for row in reference_records}
+        return [f"{names[key]}{identities[key]}" if key in names else key for key in labels]
+
     states = (getattr(system_meta, "states", None) or {})
     mapping = {str(k): str(v) for k, v in (residue_mapping or {}).items()}
     candidates = [str(sid) for sid in (selected_state_ids or []) if str(sid) in states]
@@ -106,12 +114,7 @@ def _derive_cluster_residue_display_labels(
     if state_pdb is None:
         return labels
 
-    try:
-        import MDAnalysis as mda  # type: ignore
-        universe = mda.Universe(str(state_pdb))
-        resname_map = {int(res.resid): str(res.resname).strip() for res in universe.residues}
-    except Exception:
-        return labels
+    resname_map = residue_names_for_keys(labels, pdb_path=state_pdb, residue_mapping=mapping)
 
     output: List[str] = []
     for key in labels:
@@ -124,8 +127,8 @@ def _derive_cluster_residue_display_labels(
             tail = re.search(r"(\d+)$", key)
             if tail:
                 resid_val = int(tail.group(1))
-        if resid_val is not None and resid_val in resname_map:
-            output.append(f"{resname_map[resid_val]}{resid_val}")
+        if resid_val is not None and key in resname_map:
+            output.append(f"{resname_map[key]}{resid_val}")
         else:
             output.append(key)
     return output

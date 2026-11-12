@@ -13,6 +13,8 @@ export default function SystemForm({ onCreate }) {
   const [formKey, setFormKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [reference, setReference] = useState(null);
+  const [chain, setChain] = useState('');
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -33,7 +35,12 @@ export default function SystemForm({ onCreate }) {
         payload.append('residue_selections_text', selectionsText);
       }
 
-      await onCreate(payload);
+      if (!reference) throw new Error('Choose one reference PDB.');
+      const referenceForm = new FormData();
+      referenceForm.append('pdb', reference);
+      if (chain.trim()) referenceForm.append('chain_id', chain.trim());
+      referenceForm.append('selection', selectionsText || 'protein');
+      await onCreate(payload, { referenceForm });
       setForm(buildDefaultForm());
       setFormKey((prev) => prev + 1);
     } catch (err) {
@@ -50,7 +57,7 @@ export default function SystemForm({ onCreate }) {
       className="bg-gray-800 rounded-lg border border-gray-700 p-4 space-y-4"
     >
       <div className="rounded-md border border-cyan-900/70 bg-cyan-950/20 p-3 text-sm text-cyan-400">
-        Create the system first, then open it and add states from the States panel. This matches the console workflow and avoids forcing an initial PDB upload.
+        Create a system with one reference PDB defining residue identity and order. Add the first state or replicas afterward from the Reference Structure panel.
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -85,16 +92,21 @@ export default function SystemForm({ onCreate }) {
       </label>
 
       <div>
-        <label className="block text-sm text-gray-300 mb-1">Residue Selections (optional)</label>
+        <label className="block text-sm text-gray-300 mb-1">Reference PDB (one file)</label>
+        <input type="file" required accept=".pdb,.ent" onChange={(e) => setReference(e.target.files?.[0] || null)} />
+        <label className="block text-sm text-gray-300 mt-2">Reference chain (blank = longest protein chain)<input className="w-full rounded bg-gray-900 p-2" value={chain} onChange={(e) => setChain(e.target.value)} /></label>
+      </div>
+      <div>
+        <label className="block text-sm text-gray-300 mb-1">Residue selection on reference (optional)</label>
         <textarea
           rows={4}
           value={form.residueSelections}
           onChange={(e) => handleChange('residueSelections', e.target.value)}
-          placeholder={'resid 50 51\nchain A and resid 10 to 15 [singles]\nsegid CORE and resid 20 to 25 [pairs]'}
+          placeholder="protein or resid 20 to 200"
           className="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-white focus:ring-cyan-500"
         />
         <p className="text-xs text-gray-500 mt-1">
-          Enter one selection per line. Use optional [singles] or [pairs] wildcards to expand entries automatically.
+          One MDAnalysis selection, applied to the chosen reference chain. The same selected residues and ordering are transferred to every added structure.
         </p>
       </div>
 

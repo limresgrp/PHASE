@@ -12,6 +12,7 @@ from backend.api.v1.routes import (
     jobs,
     metastable,
     projects,
+    reference,
     results,
     states,
     systems,
@@ -21,6 +22,7 @@ from backend.api.v1.routes import (
 api_router = APIRouter()
 api_router.include_router(projects.router)
 api_router.include_router(systems.router)
+api_router.include_router(reference.router)
 api_router.include_router(states.router)
 api_router.include_router(descriptors.router)
 api_router.include_router(distances.router)

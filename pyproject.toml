@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "MDAnalysis",
+    "biopython>=1.83", # Reference sequence alignment and coordinate residue identities
     "deeptime", # For VAMP analysis
     "torch",
     "pyqubo",

@@ -96,6 +96,8 @@ class DescriptorState:
     metastable_metadata_file: Optional[str] = None
     role: Optional[str] = None  # Legacy compatibility
     created_at: str = field(default_factory=_utc_now)
+    reference_alignment: Optional[Dict[str, Any]] = None
+    alignment_status: Optional[str] = None
 
 
 @dataclass
@@ -120,6 +122,13 @@ class SystemMetadata:
     metastable_clusters: List[Dict[str, Any]] = field(default_factory=list)
     analysis_states: List[Dict[str, Any]] = field(default_factory=list)
     states: Dict[str, DescriptorState] = field(default_factory=dict)
+    reference_pdb_file: Optional[str] = None
+    reference_chain_id: Optional[str] = None
+    reference_sequence: Optional[str] = None
+    reference_residue_keys: List[str] = field(default_factory=list)
+    reference_residue_records: List[Dict[str, Any]] = field(default_factory=list)
+    reference_alignment_metadata_file: Optional[str] = None
+    reference_selection: Optional[str] = None
 
 
 @dataclass
@@ -358,7 +367,7 @@ class ProjectStore:
         staging_dir = target_dir.with_name(f".{target_system_id}.{uuid.uuid4().hex}.clone-tmp")
         try:
             staging_dir.mkdir(parents=True, exist_ok=False)
-            for folder_name in ("states", "structures", "descriptors", "trajectories"):
+            for folder_name in ("states", "structures", "descriptors", "trajectories", "reference"):
                 source_path = source_dir / folder_name
                 target_path = staging_dir / folder_name
                 if source_path.exists():
@@ -408,6 +417,9 @@ class ProjectStore:
                 analysis_mode=source_meta.analysis_mode,
                 residue_selections=source_meta.residue_selections,
                 residue_selections_mapping=dict(source_meta.residue_selections_mapping or {}),
+                **{key: getattr(source_meta, key) for key in (
+                    "reference_pdb_file", "reference_chain_id", "reference_sequence", "reference_residue_keys",
+                    "reference_residue_records", "reference_alignment_metadata_file", "reference_selection")},
             )
             _write_json(staging_dir / "system.json", self._encode_system(cloned_meta))
             self._rewrite_cloned_json_paths(
@@ -784,7 +796,22 @@ class ProjectStore:
         for state in system_meta.states.values():
             residue_keys = getattr(state, "residue_keys", None) or []
             descriptor_keys.update(residue_keys)
-        system_meta.descriptor_keys = sorted(descriptor_keys)
+        system_meta.descriptor_keys = list(system_meta.reference_residue_keys) if system_meta.reference_pdb_file else sorted(descriptor_keys)
+        for state in system_meta.states.values():
+            if state.reference_alignment and state.reference_alignment.get("metadata_file"):
+                path = self.resolve_path(system_meta.project_id, system_meta.system_id, state.reference_alignment["metadata_file"])
+                # The sidecar is authoritative; missing provenance must not be
+                # silently repaired from a potentially stale embedded summary.
+                try:
+                    aligned = _read_json(path)
+                    if not isinstance(aligned, dict) or not all(key in aligned for key in ("residue_mapping", "reference_sha256", "target_sha256")):
+                        raise ValueError("Invalid alignment sidecar schema")
+                    state.reference_alignment = {**aligned, "metadata_file": state.reference_alignment["metadata_file"]}
+                    state.alignment_status = aligned.get("alignment_status", state.alignment_status)
+                except (OSError, ValueError):
+                    state.alignment_status = "failed"
+                    state.reference_alignment = {"metadata_file": state.reference_alignment["metadata_file"],
+                                                 "error": "Alignment sidecar is missing or invalid. Re-import this state; embedded mappings are not used as a fallback."}
         try:
             from phase.services.state_utils import build_analysis_states
             system_meta.analysis_states = build_analysis_states(system_meta)

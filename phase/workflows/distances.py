@@ -226,6 +226,8 @@ def _ca_atoms(universe, state: DescriptorState, residue_keys: np.ndarray, cluste
     for key in residue_keys:
         raw_selection = (state.residue_mapping or {}).get(str(key))
         if not raw_selection:
+            if getattr(state, "alignment_status", None) in {"reference", "aligned", "partial"}:
+                raise ValueError(f"State '{state.state_id}': canonical residue {key} has no target mapping.")
             match = re.fullmatch(r"res_(-?\d+)(?:_[A-Za-z]+)?", str(key))
             if match:
                 raw_selection = f"resid {int(match.group(1)) - int(state.resid_shift or 0)}"

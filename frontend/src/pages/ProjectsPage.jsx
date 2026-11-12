@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { requestJSON } from '../api/client';
 import { Download, Plus, Upload, X } from 'lucide-react';
 import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/common/ErrorMessage';
@@ -342,7 +343,13 @@ export default function ProjectsPage() {
           {selectedProjectId ? (
             <SystemForm
               onCreate={async (formData, options) => {
-                await createSystem(selectedProjectId, formData, options);
+                const created = await createSystem(selectedProjectId, formData);
+                try {
+                  if (options?.referenceForm) await requestJSON(`/projects/${encodeURIComponent(selectedProjectId)}/systems/${encodeURIComponent(created.system_id)}/reference`, { method: 'POST', body: options.referenceForm });
+                } catch (err) {
+                  await deleteSystem(selectedProjectId, created.system_id);
+                  throw err;
+                }
                 const data = await listSystems(selectedProjectId);
                 setSystems(data);
                 setShowSystemForm(false);

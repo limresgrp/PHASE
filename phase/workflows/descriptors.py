@@ -120,6 +120,8 @@ class DescriptorPreprocessor:
         traj_path: str,
         topo_path: str,
         slice_spec: Optional[str] = None,
+        *,
+        canonical_keys: Optional[List[str]] = None,
     ) -> SingleDescriptorBuildResult:
         """
         Extracts descriptors for a single state.
@@ -132,17 +134,23 @@ class DescriptorPreprocessor:
         if not selections:
             raise ValueError("No residues matched the configured selections for this state.")
 
-        extractor = FeatureExtractor(selections)
+        extractor = FeatureExtractor(selections, use_coordinate_neighbors=canonical_keys is not None)
         slice_obj = self.builder._parse_slice(slice_spec)  # pylint: disable=protected-access
         features, n_frames = extractor.extract_all_features(universe, slice_obj)
         if not features or n_frames == 0:
             raise ValueError("Descriptor extraction returned no frames.")
 
-        features, dropped = self._filter_degenerate_features(features)
+        if canonical_keys is not None:
+            missing = [key for key in canonical_keys if key not in features or not np.all(np.isfinite(features[key]))]
+            if missing:
+                raise ValueError("Missing/nonfinite canonical descriptors: " + ", ".join(missing))
+            features = {key: features[key] for key in canonical_keys}
+        else:
+            features, dropped = self._filter_degenerate_features(features)
         if not features:
             raise ValueError("All residue descriptors are degenerate (nan/inf/zero).")
 
-        residue_keys = sorted(features.keys())
+        residue_keys = list(canonical_keys) if canonical_keys is not None else sorted(features.keys())
         residue_mapping = {key: selections[key] for key in residue_keys}
 
         return SingleDescriptorBuildResult(

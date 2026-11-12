@@ -44,12 +44,13 @@ class FeatureExtractor:
     Handles calculation of backbone/sidechain dihedral angles:
     phi, psi, omega, chi1, chi2.
     """
-    def __init__(self, residue_selections: Optional[Dict[str, str]] = None):
+    def __init__(self, residue_selections: Optional[Dict[str, str]] = None, *, use_coordinate_neighbors: bool = False):
         """
         Initializes with a dictionary of residue selections.
         Example: {'res_50': 'resid 50', 'res_131': 'resid 131'}
         """
         self.residue_selections = residue_selections if residue_selections is not None else {}
+        self.use_coordinate_neighbors = use_coordinate_neighbors
         if residue_selections is not None:
             print(f"FeatureExtractor initialized for {len(self.residue_selections)} residues.")
         else:
@@ -58,13 +59,7 @@ class FeatureExtractor:
     def _get_sliced_length(self, traj: TrajectoryObject, slice_obj: slice) -> int:
         """Helper to calculate frames in a slice."""
         total_frames = len(traj.trajectory)
-        # Get slice parameters, defaulting to full trajectory
-        start = slice_obj.start or 0
-        stop = slice_obj.stop or total_frames
-        step = slice_obj.step or 1
-        
-        # Use range to correctly calculate the number of items
-        return len(range(start, stop, step))
+        return len(range(*slice_obj.indices(total_frames)))
 
     def _calculate_dihedral_angle(
         self, 
@@ -160,10 +155,42 @@ class FeatureExtractor:
     ) -> Dict[str, List[Optional[mda.AtomGroup]]]:
         """Collect per-residue 4-atom selections for all supported dihedrals."""
         selections: Dict[str, List[Optional[mda.AtomGroup]]] = {name: [] for name in DIHEDRAL_KEYS}
+        neighbors = {}
+        if self.use_coordinate_neighbors and len(residues):
+            from MDAnalysis.lib.distances import calc_bonds
+            # Number arithmetic is not peptide connectivity: 45 -> 45A -> 46
+            # must not become 45 -> 46. Use topology order within each chain,
+            # gated by the actual C--N bond distance to avoid spanning gaps.
+            chains = {}
+            for residue in residues.universe.select_atoms("protein").residues:
+                chain = tuple(sorted(set(getattr(residue.atoms, "chainIDs", [""]))))
+                chains.setdefault((residue.segment.ix, chain), []).append(residue)
+            for chain_residues in chains.values():
+                for left, right in zip(chain_residues, chain_residues[1:]):
+                    c, n = left.atoms.select_atoms("name C"), right.atoms.select_atoms("name N")
+                    box = residues.universe.dimensions
+                    if box is not None and (not np.all(np.isfinite(box)) or np.any(box[:3] < 5)
+                                            or np.any(box[3:] <= 0) or np.any(box[3:] >= 180)):
+                        box = None
+                    if len(c) == len(n) == 1 and .5 <= float(calc_bonds(c.positions[0], n.positions[0], box=box)) <= 1.9:
+                        neighbors.setdefault(left.ix, {})["next"] = right
+                        neighbors.setdefault(right.ix, {})["previous"] = left
         for residue in residues:
-            selections["phi"].append(self._safe_residue_dihedral_selection(residue, "phi_selection"))
-            selections["psi"].append(self._safe_residue_dihedral_selection(residue, "psi_selection"))
-            selections["omega"].append(self._safe_residue_dihedral_selection(residue, "omega_selection"))
+            if self.use_coordinate_neighbors:
+                prev = neighbors.get(residue.ix, {}).get("previous")
+                next_res = neighbors.get(residue.ix, {}).get("next")
+                def group(spec):
+                    if any(r is None for r, name in spec):
+                        return None
+                    atoms = [r.atoms.select_atoms(f"name {name}") for r, name in spec]
+                    return sum(atoms[1:], atoms[0]) if all(len(a) == 1 for a in atoms) else None
+                selections["phi"].append(group([(prev, "C"), (residue, "N"), (residue, "CA"), (residue, "C")]))
+                selections["psi"].append(group([(residue, "N"), (residue, "CA"), (residue, "C"), (next_res, "N")]))
+                selections["omega"].append(group([(residue, "CA"), (residue, "C"), (next_res, "N"), (next_res, "CA")]))
+            else:
+                selections["phi"].append(self._safe_residue_dihedral_selection(residue, "phi_selection"))
+                selections["psi"].append(self._safe_residue_dihedral_selection(residue, "psi_selection"))
+                selections["omega"].append(self._safe_residue_dihedral_selection(residue, "omega_selection"))
             selections["chi1"].append(self._safe_residue_dihedral_selection(residue, "chi1_selection"))
             selections["chi2"].append(self._chi2_selection(residue))
         return selections

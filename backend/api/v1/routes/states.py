@@ -263,6 +263,11 @@ async def add_system_state(
     pdb: Optional[UploadFile] = File(None),
     source_state_id: Optional[str] = Form(None),
     resid_shift: Optional[int] = Form(None),
+    chain_id: Optional[str] = Form(None),
+    use_reference: bool = Form(False),
+    trajectory: Optional[UploadFile] = File(None),
+    slice_spec: Optional[str] = Form(None),
+    build_descriptors_after_upload: bool = Form(False),
 ):
     try:
         system_meta = project_store.get_system(project_id, system_id)
@@ -272,6 +277,31 @@ async def add_system_state(
     state_name = name.strip()
     if not state_name:
         raise HTTPException(status_code=400, detail="State name is required.")
+
+    if system_meta.reference_pdb_file:
+        import tempfile
+        from fastapi.concurrency import run_in_threadpool
+        from phase.workflows.reference_states import create_reference_state
+        if int(bool(pdb)) + int(bool(source_state_id)) + int(use_reference) != 1:
+            raise HTTPException(400, "Choose the reference topology, an existing state, or upload a new PDB.")
+        if resid_shift:
+            raise HTTPException(400, "Reference systems use sequence correspondence, not manual residue shifts.")
+        try:
+            with tempfile.TemporaryDirectory(prefix="phase-state-") as temp:
+                structure = Path(temp) / "structure.pdb" if pdb else None
+                traj = Path(temp) / f"trajectory{Path(trajectory.filename).suffix}" if trajectory else None
+                if pdb:
+                    await stream_upload(pdb, structure)
+                if trajectory:
+                    await stream_upload(trajectory, traj)
+                await run_in_threadpool(create_reference_state, project_store, project_id, system_id,
+                    name=state_name, pdb_path=structure, source_state_id=source_state_id, chain_id=chain_id,
+                    trajectory=traj, slice_spec=slice_spec, build_descriptors=build_descriptors_after_upload,
+                    trajectory_source=trajectory.filename if trajectory else None,
+                    provenance={"source": "upload", "original_filename": pdb.filename} if pdb else None)
+            return serialize_system(project_store.get_system(project_id, system_id))
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     if not pdb and not source_state_id:
         raise HTTPException(status_code=400, detail="Provide a PDB file or choose an existing state to copy from.")
@@ -365,6 +395,27 @@ async def upload_state_trajectory(
         raise HTTPException(status_code=404, detail=f"System '{system_id}' not found.")
 
     state_meta = get_state_or_404(system_meta, state_id)
+    if system_meta.reference_pdb_file:
+        import tempfile
+        from fastapi.concurrency import run_in_threadpool
+        from phase.workflows.reference_states import attach_trajectory
+        from phase.workflows.macro_states import build_state_descriptors as build_core
+        if resid_shift:
+            raise HTTPException(400, "Reference-aligned states cannot use manual shifts.")
+        try:
+            if trajectory:
+                with tempfile.TemporaryDirectory(prefix="phase-traj-") as temp:
+                    path = Path(temp) / f"trajectory{Path(trajectory.filename).suffix}"
+                    await stream_upload(trajectory, path)
+                    system_meta = await run_in_threadpool(attach_trajectory, project_store, project_id, system_id,
+                        state_id, path, slice_spec=slice_spec or (f"::{stride}" if stride > 1 else None),
+                        trajectory_source=trajectory.filename,
+                        build_descriptors=build_descriptors_after_upload)
+            elif build_descriptors_after_upload:
+                system_meta = await run_in_threadpool(build_core, project_store, project_id, system_meta, state_meta)
+            return serialize_system(system_meta)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
     if slice_spec:
         try:
             slice_spec, stride_val = parse_slice_spec(slice_spec)
@@ -511,6 +562,9 @@ async def delete_state(project_id: str, system_id: str, state_id: str):
     )
 
     for field in ("descriptor_file", "descriptor_metadata_file", "trajectory_file", "pdb_file"):
+        if field == "pdb_file" and (state_meta.pdb_file == system_meta.reference_pdb_file or any(
+                other.pdb_file == state_meta.pdb_file for sid, other in system_meta.states.items() if sid != state_id)):
+            continue
         _unlink_if_inside_system(project_id, system_id, getattr(state_meta, field, None))
     if state_meta.metastable_metadata_file:
         _unlink_if_inside_system(project_id, system_id, state_meta.metastable_metadata_file)

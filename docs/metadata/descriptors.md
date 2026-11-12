@@ -7,6 +7,7 @@ Purpose
 Metadata for descriptor NPZ files produced per macro state.
 
 Fields
+- `canonical_reference` (bool): when true, NPZ insertion order and `descriptor_keys` preserve the selected reference order; they must not be lexicographically sorted.
 - `descriptor_keys` (array of strings) – residue keys present in the NPZ
 - `residue_mapping` (object) – mapping from residue keys to selection strings
 - `n_frames` (int)
@@ -14,4 +15,3 @@ Fields
 
 Notes
 - `system.json` should **not** store global `descriptor_keys`. This file is the source of truth.
-

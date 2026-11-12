@@ -42,6 +42,12 @@ if [ "$MODE" = "create-system" ]; then
   DESC="$(prompt "System description" "")"
   EXTRA_ARGS=()
   EXTRA_ARGS+=(--use-slug-ids)
+  REF="$(prompt "Reference PDB path" "")"
+  [ -n "$REF" ] || { echo "Reference PDB required." >&2; exit 1; }
+  CHAIN="$(prompt "Reference chain (blank = longest)" "")"
+  SELECTION="$(prompt "Selection on reference" "protein")"
+  EXTRA_ARGS+=(--reference "$REF" --selection "$SELECTION")
+  [ -z "$CHAIN" ] || EXTRA_ARGS+=(--chain-id "$CHAIN")
   python -m phase.scripts.offline_system --root "$OFFLINE_ROOT" create-system --project-id "$OFFLINE_PROJECT_ID" --name "$NAME" ${DESC:+--description "$DESC"} "${EXTRA_ARGS[@]}"
   exit 0
 fi

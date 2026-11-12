@@ -962,6 +962,11 @@ def _coerce_residue_keys(
     if residue_keys:
         return residue_keys
     if state.residue_keys:
+        if state.alignment_status in {"reference", "aligned", "partial"}:
+            missing = [key for key in state.residue_keys if key not in features]
+            if missing:
+                raise ValueError(f"Canonical descriptors missing in {state.state_id}: {missing}")
+            return list(state.residue_keys)
         return _sort_residue_keys(state.residue_keys)
     feature_keys = [k for k in features.keys() if k != "metastable_labels"]
     return _sort_residue_keys(feature_keys)
@@ -2350,6 +2355,9 @@ def _collect_cluster_inputs(
         for state in candidate_states:
             if not state.descriptor_file:
                 continue
+            if system.reference_pdb_file and (state.alignment_status not in {"reference", "aligned"}
+                    or list(state.residue_keys) != list(system.reference_residue_keys)):
+                raise ValueError(f"State '{state.state_id}' does not match the system's canonical reference selection. Rebuild its aligned descriptors.")
             if residue_reference_pdb is None and state.pdb_file:
                 try:
                     candidate_pdb = store.resolve_path(project_id, system_id, state.pdb_file)
@@ -3061,7 +3069,9 @@ def generate_cluster_npz_from_descriptors(
         features = load_descriptor_npz(path)
         if not features:
             raise ValueError(f"No descriptor data found in '{path}'.")
-        keys = sorted(features.keys())
+        descriptor_meta = path.with_name("descriptor_metadata.json")
+        canonical = descriptor_meta.exists() and json.loads(descriptor_meta.read_text()).get("canonical_reference", False)
+        keys = list(features) if canonical else sorted(features.keys())
         if not residue_keys:
             residue_keys = keys
         elif residue_keys != keys:
@@ -3075,7 +3085,9 @@ def generate_cluster_npz_from_descriptors(
         features = load_descriptor_npz(path)
         if not features:
             raise ValueError(f"No descriptor data found in '{path}'.")
-        keys = sorted(features.keys())
+        descriptor_meta = path.with_name("descriptor_metadata.json")
+        canonical = descriptor_meta.exists() and json.loads(descriptor_meta.read_text()).get("canonical_reference", False)
+        keys = list(features) if canonical else sorted(features.keys())
         if residue_keys and residue_keys != keys:
             missing = sorted(set(residue_keys) - set(keys))
             extra = sorted(set(keys) - set(residue_keys))

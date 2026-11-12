@@ -60,6 +60,7 @@ async def create_system_with_descriptors(
     residue_selections_json: Optional[str] = Form(None),
     use_slug_ids: Optional[bool] = Form(False),
     pdb_files: Optional[List[UploadFile]] = File(None),
+    legacy_import: bool = Form(False),
 ):
     try:
         project_store.get_project(project_id)
@@ -67,6 +68,8 @@ async def create_system_with_descriptors(
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
 
     pdb_files = [upload for upload in (pdb_files or []) if upload and upload.filename]
+    if len(pdb_files) > 1 and not legacy_import:
+        raise HTTPException(400, "Initial reference ingestion accepts one PDB. Use the reference endpoint and add aligned states afterward, or explicitly set legacy_import=true for the old multi-PDB workflow.")
 
     try:
         parsed_names = json.loads(state_names) if state_names else []

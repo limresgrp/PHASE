@@ -2,7 +2,7 @@
 # These are also listed in pyproject.toml,
 # but this file is useful for CI/CD and Docker.
 numpy
-biopython
+biopython>=1.83
 MDAnalysis
 scikit-learn
 deeptime # For VAMP analysis

@@ -222,6 +222,12 @@ system_menu() {
         if [ "$USE_SLUG_IDS" = "true" ]; then
           EXTRA_ARGS+=(--use-slug-ids)
         fi
+        REF="$(prompt "Reference PDB path (required for new systems)" "")"
+        [ -n "$REF" ] || { echo "Reference PDB required."; continue; }
+        CHAIN="$(prompt "Reference chain (blank = longest protein chain)" "")"
+        SELECTION="$(prompt "Residue selection on reference" "protein")"
+        EXTRA_ARGS+=(--reference "$REF" --selection "$SELECTION")
+        [ -z "$CHAIN" ] || EXTRA_ARGS+=(--chain-id "$CHAIN")
         python -m phase.scripts.offline_system --root "$OFFLINE_ROOT" create-system --project-id "$OFFLINE_PROJECT_ID" --name "$NAME" ${DESC:+--description "$DESC"} "${EXTRA_ARGS[@]}"
         ;;
       clone)
@@ -515,7 +521,7 @@ state_menu() {
     STATE_LINES="$(_offline_list list-states --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID" || true)"
     print_state_summary "$STATE_LINES"
     echo ""
-    ACTION_LINES=$'open-cluster|Open cluster\nadd-state|Add state (PDB, optional trajectory)\ndelete-state|Delete state\nlist-clusters|List clusters\ncluster|Run clustering\nback|Back to systems'
+    ACTION_LINES=$'open-cluster|Open cluster\nreference|Set/view reference structure\nadd-state|Add state (reference, existing topology, or new PDB)\nadd-pdb-ids|Add states from PDB IDs\nattach-traj|Attach trajectory / create replica\nalignment|Inspect alignment metadata\ndelete-state|Delete state\nlist-clusters|List clusters\ncluster|Run clustering\nback|Back to systems'
     ACTION_ROW="$(offline_choose_one "System actions:" "$ACTION_LINES")"
     ACTION="$(printf "%s" "$ACTION_ROW" | awk -F'|' '{print $1}')"
     case "$ACTION" in
@@ -532,15 +538,22 @@ state_menu() {
         fi
         ;;
       add-state)
+        ensure_env || return 0
         STATE_ID="$(prompt "State ID" "state_1")"
         STATE_NAME="$(prompt "State name" "$STATE_ID")"
-        PDB_PATH="$(prompt "PDB path" "")"
+        PDB_PATH="$(prompt "PDB path (blank = reference topology, if configured)" "")"
         TRAJ_PATH="$(prompt "Trajectory path (optional; blank = PDB-only single frame)" "")"
         SLICE_SPEC="$(prompt "Frame slice start:stop:step (blank = full; number = step)" "")"
-        RESID_SHIFT="$(prompt "Residue shift offset (integer)" "0")"
-        RES_SEL="$(prompt "Residue selection (optional)" "")"
+        HAS_REF="$(python -c 'import sys; from pathlib import Path; from phase.services.project_store import ProjectStore; print(int(bool(ProjectStore(Path(sys.argv[1])/"projects").get_system(sys.argv[2],sys.argv[3]).reference_pdb_file)))' "$OFFLINE_ROOT" "$OFFLINE_PROJECT_ID" "$OFFLINE_SYSTEM_ID")"
+        RESID_SHIFT="0"; RES_SEL=""; CHAIN=""
+        if [ "$HAS_REF" = "0" ]; then
+          RESID_SHIFT="$(prompt "Legacy residue shift offset" "0")"
+          RES_SEL="$(prompt "Legacy residue selection (optional)" "")"
+        elif [ -n "$PDB_PATH" ]; then
+          CHAIN="$(prompt "Target chain (blank = best sequence match)" "")"
+        fi
         COPY_TRAJ="false"
-        if [ -n "$TRAJ_PATH" ] && prompt_bool "Copy trajectory into system folder? (y/N)" "N"; then
+        if [ -n "$TRAJ_PATH" ] && prompt_bool "Copy trajectory into shared data root (recommended for Docker)? (Y/n)" "Y"; then
           COPY_TRAJ="true"
         fi
         ensure_env || return 0
@@ -548,8 +561,9 @@ state_menu() {
           --project-id "$OFFLINE_PROJECT_ID" \
           --system-id "$OFFLINE_SYSTEM_ID" \
           --state-id "$STATE_ID" \
-          --name "$STATE_NAME" \
-          --pdb "$PDB_PATH")
+          --name "$STATE_NAME")
+        if [ -n "$PDB_PATH" ]; then CMD+=(--pdb "$PDB_PATH"); else CMD+=(--use-reference); fi
+        [ -z "$CHAIN" ] || CMD+=(--chain-id "$CHAIN")
         if [ -n "$TRAJ_PATH" ]; then
           CMD+=(--traj "$TRAJ_PATH")
         fi
@@ -568,6 +582,54 @@ state_menu() {
         if ! "${CMD[@]}"; then
           echo "Add state failed. Check paths and try again."
         fi
+        pause
+        ;;
+      reference)
+        ensure_env || return 0
+        CMD=(python -m phase.scripts.offline_system --root "$OFFLINE_ROOT" reference --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID")
+        REF="$(prompt "Reference PDB path (blank = view existing)" "")"
+        if [ -n "$REF" ]; then
+          CHAIN="$(prompt "Reference chain (blank = longest)" "")"
+          SELECTION="$(prompt "Selection on reference" "protein")"
+          CMD+=(--pdb "$REF" --selection "$SELECTION")
+          [ -z "$CHAIN" ] || CMD+=(--chain-id "$CHAIN")
+        fi
+        "${CMD[@]}" || echo "Reference operation failed."
+        pause
+        ;;
+      alignment)
+        ensure_env || return 0
+        python -m phase.scripts.offline_system --root "$OFFLINE_ROOT" alignments --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID"
+        pause
+        ;;
+      add-pdb-ids)
+        ensure_env || return 0
+        IDS="$(prompt "PDB IDs (comma separated)" "")"
+        CHAIN="$(prompt "Target chain (blank = automatic; identical chains need a choice)" "")"
+        CMD=(python -m phase.scripts.offline_system --root "$OFFLINE_ROOT" add-pdb-ids --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID" --pdb-ids "$IDS")
+        [ -z "$CHAIN" ] || CMD+=(--chain-id "$CHAIN")
+        if prompt_bool "Preview only? (Y/n)" "Y"; then CMD+=(--preview); fi
+        "${CMD[@]}" || echo "Some PDB IDs failed; see per-ID results."
+        pause
+        ;;
+      attach-traj)
+        ensure_env || return 0
+        STATE_ROW="$(offline_select_state_one)"
+        STATE_ID="$(printf "%s" "$STATE_ROW" | awk -F'|' '{print $1}')"
+        [ -n "$STATE_ID" ] || continue
+        TRAJ_PATH="$(prompt "Trajectory path" "")"
+        SLICE_SPEC="$(prompt "Frame slice (blank = all frames)" "")"
+        CMD=(python -m phase.scripts.offline_system --root "$OFFLINE_ROOT")
+        if prompt_bool "Create a new replica instead of replacing this state's trajectory? (Y/n)" "Y"; then
+          NEW_ID="$(prompt "New state ID" "replica_2")"
+          NEW_NAME="$(prompt "New state name" "$NEW_ID")"
+          CMD+=(add-state --state-id "$NEW_ID" --name "$NEW_NAME" --source-state-id "$STATE_ID" --copy-traj)
+        else
+          CMD+=(attach-traj --state-id "$STATE_ID")
+        fi
+        CMD+=(--project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID" --traj "$TRAJ_PATH")
+        [ -z "$SLICE_SPEC" ] || CMD+=(--slice-spec "$SLICE_SPEC")
+        "${CMD[@]}" || echo "Trajectory operation failed."
         pause
         ;;
       delete-state)

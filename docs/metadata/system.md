@@ -14,6 +14,13 @@ Required fields
 - `created_at` (ISO8601 string)
 
 Common fields
+- `reference_pdb_file` (relative path or null): immutable reference topology.
+- `reference_chain_id` (string or null): chosen protein chain, empty string for unnamed.
+- `reference_sequence` (string or null): observed coordinate sequence.
+- `reference_residue_records` (array): ordered index/key/chain/resid/insertion-code/resname identities.
+- `reference_residue_keys` (array): selected keys in reference coordinate order.
+- `reference_selection` (string or null): MDAnalysis selection evaluated on reference.
+- `reference_alignment_metadata_file` (relative path or null): reference provenance.
 - `status` (string) – `"processing" | "ready" | "single-ready" | "awaiting-descriptor" | "pdb-only" | "empty"`
 - `macro_locked` (bool)
 - `metastable_locked` (bool)
@@ -26,6 +33,8 @@ Common fields
 - `states` (object mapping `state_id` -> state metadata)
 
 State metadata (per `states[state_id]`)
+- `alignment_status`: `reference`, `aligned`, `partial`, or null/legacy.
+- `reference_alignment`: alignment provenance with `metadata_file` pointing at the authoritative state sidecar. Includes forward/reverse residue maps, coverage, identity, gaps, missing selected keys, scoring settings, source and structure fingerprints.
 - `state_id` (string)
 - `name` (string)
 - `pdb_file` (string or null)
@@ -39,6 +48,7 @@ State metadata (per `states[state_id]`)
 - `residue_selection` (string or null)
 - `residue_keys` (array of strings)
 - `residue_mapping` (object)
+  For reference-aligned states these are exact target topology selections, not integer offsets. See [Reference alignment](../reference_alignment.md).
 - `metastable_labels_file` (string or null)
 - `role` (string or null)
 - `created_at` (ISO8601 string)
@@ -47,4 +57,3 @@ Derived fields (computed at runtime, not persisted)
 - `descriptor_keys` (array of strings)
 - `analysis_states` (array of objects)
 - `metastable_clusters` (array of cluster entries; see `cluster.md`)
-

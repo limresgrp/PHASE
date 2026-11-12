@@ -20,6 +20,7 @@ export default function SystemDetailMacroPanel({
   processingState,
   handleAddState,
   addingState,
+  referenceBased = false,
 }) {
   const [expanded, setExpanded] = useState(false);
   const previewNames = (states || [])
@@ -80,8 +81,8 @@ export default function SystemDetailMacroPanel({
           Trajectories are optional. Upload them later to build descriptors; a PDB-only state can be built as a one-frame state and included the next time Sampling Explorer analysis is run.
         </p>
       )}
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="md:col-span-2 grid sm:grid-cols-2 gap-3">
+      <div className={`grid gap-4 ${referenceBased ? '' : 'md:grid-cols-3'}`}>
+        <div className={`grid sm:grid-cols-2 gap-3 ${referenceBased ? '' : 'md:col-span-2'}`}>
           {states.length === 0 && <p className="text-sm text-gray-400">No states yet.</p>}
           {states.map((state) => (
             <StateCard
@@ -97,7 +98,7 @@ export default function SystemDetailMacroPanel({
             />
           ))}
         </div>
-        <AddStateForm states={states} onAdd={handleAddState} isAdding={addingState} />
+        {!referenceBased && <AddStateForm states={states} onAdd={handleAddState} isAdding={addingState} />}
       </div>
         </>
       )}

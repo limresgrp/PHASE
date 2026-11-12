@@ -1,12 +1,12 @@
 from typing import Any, Dict, List, Optional
 
-import MDAnalysis as mda
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.api.v1.common import get_state_or_404, project_store
 from phase.features.extraction import DIHEDRAL_KEYS
 from phase.io.descriptors import load_descriptor_npz
+from phase.io.residue_names import residue_names_for_keys
 
 
 router = APIRouter()
@@ -95,17 +95,12 @@ async def get_state_descriptors(
     residue_labels: Dict[str, str] = {}
     sample_stride = 1
 
-    # Try to resolve residue names from the stored PDB for nicer labels
-    resname_map: Dict[int, str] = {}
-    if state_meta.pdb_file:
-        try:
-            pdb_path = project_store.resolve_path(project_id, system_id, state_meta.pdb_file)
-            if pdb_path.exists():
-                u = mda.Universe(str(pdb_path))
-                for res in u.residues:
-                    resname_map[int(res.resid)] = str(res.resname).strip()
-        except Exception:
-            resname_map = {}
+    resname_map = residue_names_for_keys(
+        keys_to_use, reference_records=system.reference_residue_records or [],
+        pdb_path=(project_store.resolve_path(project_id, system_id, state_meta.pdb_file)
+                  if state_meta.pdb_file else None),
+        residue_mapping=state_meta.residue_mapping,
+    )
 
     # --- Metastable filtering ---
     metastable_filter_ids = []
@@ -255,13 +250,8 @@ async def get_state_descriptors(
                 angles_payload[key]["cluster_labels"] = labels_for_res.tolist()
 
         label = key
-        selection = (state_meta.residue_mapping or {}).get(key) or ""
-        resid_tokens = [
-            tok for tok in selection.replace("resid", "").split() if tok.strip().lstrip("-").isdigit()
-        ]
-        resid_val = int(resid_tokens[0]) if resid_tokens else None
-        if resid_val is not None and resid_val in resname_map:
-            label = f"{key}_{resname_map[resid_val]}"
+        if key in resname_map:
+            label = f"{key}_{resname_map[key]}"
         residue_labels[key] = label
 
     if cluster_id:

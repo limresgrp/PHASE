@@ -130,6 +130,7 @@ async def structure_map(project_id: str, system_id: str, cluster_id: str, state_
         try:
             atoms = _ca_atoms(universe, state, cluster.residue_keys, cluster.metadata.get("residue_mapping") or {})
             return {"residues": [{"key": str(key), "resid": int(atom.resid), "resname": str(atom.resname),
+                                  "insertion_code": str(getattr(atom.residue, "icode", "")).strip(),
                                   "chain": str(getattr(atom, "chainID", "")), "position": atom.position.tolist()}
                                  for key, atom in zip(cluster.residue_keys, atoms)]}
         finally:

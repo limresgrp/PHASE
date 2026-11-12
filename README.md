@@ -44,7 +44,8 @@ See [Distance Analysis help](docs/distance_analysis.md) for interpretation.
 1. **Create a project**
    - Decide project name and add optional description.
 2. **Create a system**
-   - Upload PDBs for the macro-states (multipart form).
+   - Upload one reference PDB, select its protein chain and canonical residues.
+   - Use **Reference Structure → Add state / replica** for the reference state, another aligned PDB, or a shared-topology replica. PDB-ID batches support alignment previews.
 3. **Upload trajectories + build descriptors**
    - Upload trajectories per state; descriptors are built and stored on disk.
 4. **(Optional) Run metastable discovery**
@@ -57,6 +58,11 @@ See [Distance Analysis help](docs/distance_analysis.md) for interpretation.
    - Use the frontend to explore plots and download artifacts.
 
 Background jobs (metastable discovery, clustering, Potts sampling) are executed by RQ workers. See `docs/clustering_architecture.md` for the clustering fan-out flow.
+
+See [Reference structures and residue correspondence](docs/reference_alignment.md)
+for the web/console workflows, missing-residue policy and scientific provenance.
+Existing systems without a reference keep their original selections and offsets;
+they are not automatically migrated.
 
 ## Recommended Pipeline
 

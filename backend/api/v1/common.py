@@ -37,7 +37,11 @@ def serialize_project(meta: ProjectMetadata) -> Dict[str, Any]:
 
 
 def serialize_system(meta: SystemMetadata) -> Dict[str, Any]:
-    return asdict(meta)
+    payload = asdict(meta)
+    for state in payload["states"].values():
+        state["alignment"] = state.get("reference_alignment")
+        state["alignment_status"] = state.get("alignment_status") or "legacy"
+    return payload
 
 
 async def stream_upload(upload: UploadFile, destination: Path) -> None:

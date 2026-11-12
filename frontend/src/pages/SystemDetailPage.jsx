@@ -4,6 +4,7 @@ import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/common/ErrorMessage';
 import SystemClusterPanel from '../components/system/SystemClusterPanel';
 import SystemDetailMacroPanel from '../components/system/SystemDetailMacroPanel';
+import ReferenceStructurePanel from '../components/system/ReferenceStructurePanel';
 import SystemDetailMetastablePanel from '../components/system/SystemDetailMetastablePanel';
 import SystemDetailPottsSection from '../components/system/SystemDetailPottsSection';
 import { ClusterBuildOverlay, DocOverlay, InfoOverlay } from '../components/system/SystemDetailOverlays';
@@ -895,7 +896,7 @@ export default function SystemDetailPage({ section = 'system' }) {
       setActionMessage(
         file
           ? (rebuildDescriptors ? 'Uploaded trajectory; rebuilding descriptors...' : 'Uploaded trajectory into the shared data root.')
-          : 'Building descriptors from the stored PDB...'
+          : 'Building descriptors from the stored coordinates...'
       );
       await refreshSystem();
     } catch (err) {
@@ -1294,7 +1295,9 @@ export default function SystemDetailPage({ section = 'system' }) {
       <div className="space-y-8">
           {section === 'system' && (
             <>
+          <ReferenceStructurePanel projectId={projectId} systemId={systemId} system={system} onChanged={refreshSystem} />
           <SystemDetailMacroPanel
+            referenceBased={Boolean(system.reference_pdb_file)}
             states={states}
             systemStatus={system.status}
             descriptorsReady={descriptorsReady}

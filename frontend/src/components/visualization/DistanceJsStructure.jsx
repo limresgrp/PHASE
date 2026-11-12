@@ -85,8 +85,10 @@ export default function DistanceJsStructure({ projectId, systemId, clusterId, sy
       for (const [i, values] of residues) {
         if (cancelled) return;
         const atom = mapping.current[i];
-        const tests = { 'residue-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), atom.resid]) };
-        if (atom.chain) tests['chain-test'] = MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), atom.chain]);
+        const tests = { 'residue-test': MS.core.logic.and([
+          MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), atom.resid]),
+          MS.core.rel.eq([MS.struct.atomProperty.macromolecular.pdbx_PDB_ins_code(), atom.insertion_code || '']),
+        ]), 'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), atom.chain || '']) };
         const expression = MS.struct.generator.atomGroups(tests);
         await setStructureOverpaint(plugin, components, color(values.reduce((sum, v) => sum + v, 0) / values.length, saturation), (s) =>
           StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(expression, s)));

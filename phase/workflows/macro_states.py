@@ -127,7 +127,7 @@ def refresh_system_metadata(system_meta: SystemMetadata) -> None:
     all_keys = set()
     for state in system_meta.states.values():
         all_keys.update(state.residue_keys or [])
-    system_meta.descriptor_keys = sorted(all_keys)
+    system_meta.descriptor_keys = list(system_meta.reference_residue_keys) if system_meta.reference_pdb_file else sorted(all_keys)
     system_meta.analysis_states = build_analysis_states(system_meta)
     update_system_status(system_meta)
 
@@ -159,8 +159,10 @@ def _build_state_artifacts(
     state_id: str,
     state_name: Optional[str],
     selection_used: str,
+    canonical_keys: Optional[list[str]] = None,
 ) -> Tuple[Any, Dict[str, Path]]:
-    build_result = preprocessor.build_single(str(traj_path), str(pdb_path), slice_spec)
+    kwargs = {"canonical_keys": canonical_keys} if canonical_keys is not None else {}
+    build_result = preprocessor.build_single(str(traj_path), str(pdb_path), slice_spec, **kwargs)
     (
         build_result.features,
         build_result.residue_keys,
@@ -184,6 +186,8 @@ def _build_state_artifacts(
         "n_frames": build_result.n_frames,
         "residue_selection": selection_used,
         "resid_shift": int(resid_shift),
+        "canonical_reference": canonical_keys is not None,
+        "backbone_neighbor_policy": "chain topology order with C-N distance 0.5..1.9 A" if canonical_keys is not None else "MDAnalysis residue numbering",
     }
     artifact_paths["metadata"].write_text(json.dumps(metadata_payload, indent=2))
     return build_result, artifact_paths
@@ -226,9 +230,21 @@ def build_state_descriptors(
     if not traj_path.exists():
         raise FileNotFoundError("Stored trajectory file missing on disk.")
 
-    selection_used, selections_config = _resolve_selection_config(system_meta, residue_filter)
+    canonical_keys = None
+    if system_meta.reference_pdb_file:
+        from phase.workflows.reference_states import canonical_mapping
+        if resid_shift not in (None, 0):
+            raise ValueError("Manual residue shifts are only supported for legacy systems without a reference.")
+        selections_config = canonical_mapping(store, system_meta, state_meta)
+        canonical_keys = list(system_meta.reference_residue_keys)
+        selection_used = "reference:" + str(system_meta.reference_selection)
+    else:
+        selection_used, selections_config = _resolve_selection_config(system_meta, residue_filter)
     preprocessor = DescriptorPreprocessor(residue_selections=selections_config)
-    shift_value = int(state_meta.resid_shift if resid_shift is None else resid_shift)
+    if canonical_keys is not None and not state_meta.trajectory_file and traj_path.resolve() == pdb_path.resolve():
+        state_meta.slice_spec = "0:1"
+        state_meta.stride = 1
+    shift_value = 0 if canonical_keys is not None else int(state_meta.resid_shift if resid_shift is None else resid_shift)
     build_result, artifact_paths = _build_state_artifacts(
         preprocessor,
         traj_path=traj_path,
@@ -239,6 +255,7 @@ def build_state_descriptors(
         state_id=state_meta.state_id,
         state_name=state_meta.name,
         selection_used=selection_used,
+        canonical_keys=canonical_keys,
     )
 
     rel_npz = str(artifact_paths["npz"].relative_to(system_dir))
@@ -250,7 +267,7 @@ def build_state_descriptors(
     state_meta.residue_keys = build_result.residue_keys
     state_meta.residue_mapping = build_result.residue_mapping
     state_meta.resid_shift = shift_value
-    state_meta.residue_selection = residue_filter.strip() if residue_filter else None
+    state_meta.residue_selection = None if canonical_keys is not None else (residue_filter.strip() if residue_filter else None)
 
     refresh_system_metadata(system_meta)
     store.save_system(system_meta)
@@ -272,6 +289,13 @@ def add_state(
     resid_shift: int = 0,
 ) -> DescriptorState:
     system = store.get_system(project_id, system_id)
+    if system.reference_pdb_file:
+        if resid_shift:
+            raise ValueError("Manual residue shifts bypass reference alignment and are only allowed in legacy systems.")
+        from phase.workflows.reference_states import create_reference_state
+        return create_reference_state(store, project_id, system_id, name=name or state_id, state_id=state_id,
+            pdb_path=pdb_path, trajectory=traj_path, copy_traj=copy_traj, slice_spec=slice_spec,
+            build_descriptors=build_descriptors)
 
     if state_id in system.states:
         raise ValueError(f"State '{state_id}' already exists.")

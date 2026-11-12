@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
+import { AlignmentDetails } from './ReferenceStructurePanel';
 
 export function StateCard({
   state,
@@ -68,6 +69,7 @@ export function StateCard({
           <dd className="truncate text-gray-200">{descriptorLabel}</dd>
         </div>
       </dl>
+      <AlignmentDetails alignment={state.alignment || state.reference_alignment} status={state.alignment_status} />
 
       {(uploading || progress !== undefined || processing) && (
         <div className="space-y-1 text-xs text-gray-300">
@@ -112,7 +114,7 @@ export function StateCard({
           />
           <p className="text-[11px] text-gray-500 mt-1">Leave blank for full trajectory. Single number = step.</p>
         </div>
-        <div>
+        {(!state.alignment_status || state.alignment_status === 'legacy') && <div>
           <label className="block text-sm text-gray-300 mb-1">Residue filter (MDAnalysis)</label>
           <input
             type="text"
@@ -122,8 +124,8 @@ export function StateCard({
             className="w-full bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-white"
           />
           <p className="text-[11px] text-gray-500 mt-1">Applied as: protein and (&lt;filter&gt;).</p>
-        </div>
-        <div>
+        </div>}
+        {(!state.alignment_status || state.alignment_status === 'legacy') && <div>
           <label className="block text-sm text-gray-300 mb-1">Residue shift offset</label>
           <input
             type="number"
@@ -135,7 +137,7 @@ export function StateCard({
           <p className="text-[11px] text-gray-500 mt-1">
             Applied to saved residue keys (e.g. -2 maps <span className="font-mono">res_4</span> to <span className="font-mono">res_2</span>).
           </p>
-        </div>
+        </div>}
         <label className="flex items-start gap-2 text-sm text-gray-300">
           <input
             type="checkbox"
