@@ -812,14 +812,11 @@ def _potts_analysis_payload_worker(payload: dict[str, Any]) -> dict[str, Any]:
             "sample": sample,
             "node_js": np.asarray(metrics["node_js"], dtype=float),
             "edge_js": np.asarray(metrics["edge_js"], dtype=float),
+            "observed_counts": {key: metrics[key] for key in (
+                "node_observed_counts_md", "node_observed_counts_sample", "edge_observed_counts_md", "edge_observed_counts_sample")},
             "summary": {
-                "node_js_mean": float(metrics["node_js_mean"]),
-                "node_js_median": float(metrics["node_js_median"]),
-                "node_js_max": float(metrics["node_js_max"]),
-                "edge_js_mean": float(metrics["edge_js_mean"]),
-                "edge_js_median": float(metrics["edge_js_median"]),
-                "edge_js_max": float(metrics["edge_js_max"]),
-                "combined_distance": float(metrics["combined_distance"]),
+                **{key: metrics[key] for key in ("node_js_mean", "node_js_median", "node_js_max",
+                   "edge_js_mean", "edge_js_median", "edge_js_max", "combined_distance")},
                 "md_count": int(X_md.shape[0]),
                 "sample_count": int(X_sample.shape[0]),
             },
@@ -847,6 +844,9 @@ def _potts_analysis_payload_worker(payload: dict[str, Any]) -> dict[str, Any]:
         energy_payload = compute_sample_energies(model, X)
         return {
             "kind": "model_energy",
+            "missing_mask": energy_payload["missing_mask"],
+            "node_observed_mask": energy_payload["node_observed_mask"],
+            "edge_observed_mask": energy_payload["edge_observed_mask"],
             "sample": sample,
             "energies": np.asarray(energy_payload["energies"], dtype=float),
             "node_energies": np.asarray(energy_payload["node_energies"], dtype=np.float32),
@@ -860,6 +860,10 @@ def _potts_analysis_payload_worker(payload: dict[str, Any]) -> dict[str, Any]:
                 "energy_min": float(energy_payload["energy_min"]),
                 "energy_max": float(energy_payload["energy_max"]),
                 "count": int(X.shape[0]),
+                "missing_residue_indices": np.flatnonzero(np.any(energy_payload["missing_mask"], axis=0)).tolist(),
+                "observed_node_count_range": [int(np.min(energy_payload["observed_node_counts"])), int(np.max(energy_payload["observed_node_counts"]))],
+                "observed_edge_count_range": [int(np.min(energy_payload["observed_edge_counts"])), int(np.max(energy_payload["observed_edge_counts"]))],
+                "missing_energy_policy": "zero missing nodes and incident edges (partial Hamiltonian, not marginalization)",
             },
         }
     raise ValueError(f"Unsupported Potts analysis payload kind: {kind}")
@@ -908,6 +912,7 @@ def aggregate_potts_analysis_batch(
                 npz_path,
                 node_js=np.asarray(row.get("node_js"), dtype=float),
                 edge_js=np.asarray(row.get("edge_js"), dtype=float),
+                **row.get("observed_counts", {}),
                 edges=np.asarray(edges_for_metrics, dtype=int),
             )
             md_sample = row.get("md_sample") or {}
@@ -953,6 +958,9 @@ def aggregate_potts_analysis_batch(
             )
             np.savez_compressed(
                 components_path,
+                missing_mask=np.asarray(row.get("missing_mask"), dtype=bool),
+                node_observed_mask=np.asarray(row.get("node_observed_mask"), dtype=bool),
+                edge_observed_mask=np.asarray(row.get("edge_observed_mask"), dtype=bool),
                 node_energies=np.asarray(row.get("node_energies"), dtype=np.float32),
                 edge_energies=np.asarray(row.get("edge_energies"), dtype=np.float32),
                 edge_index=np.asarray(row.get("edge_index"), dtype=np.int32).reshape((-1, 2)),

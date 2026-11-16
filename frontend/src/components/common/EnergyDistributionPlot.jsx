@@ -579,7 +579,9 @@ export function buildEnergyDistributionPlot({
   const shapes = [];
   const annotations = [];
   const peakMarkers = [];
+  const poses = [];
   let tallestCurve = 0;
+  let tallestHistogram = 0;
   valid.forEach((s, idx) => {
     const color = s.color || pickEnergyColor(idx);
     const lineDash = energyLineDash(s.lineDash);
@@ -587,37 +589,22 @@ export function buildEnergyDistributionPlot({
     const values = finiteValues(s.values || s.energies);
     const isPose = values.length === 1;
     if (isPose && values.length) {
-      const x = Number(values[0]);
-      shapes.push({
-        type: 'line',
-        xref: 'x',
-        yref: 'paper',
-        x0: x,
-        x1: x,
-        y0: 0,
-        y1: 1,
-        line: { color, width: 2, dash: lineDash === 'solid' ? 'dot' : lineDash },
-      });
-      annotations.push({
-        x,
-        y: 1,
-        xref: 'x',
-        yref: 'paper',
-        xanchor: 'left',
-        yanchor: 'bottom',
-        text: label,
-        showarrow: false,
-        font: { size: 10, color },
-        bgcolor: 'rgba(255,255,255,0.75)',
-        bordercolor: color,
-        borderwidth: 1,
-        borderpad: 2,
-      });
+      poses.push({ x: values[0], color, label, lineDash });
       return;
     }
 
     if (mode === 'histogram') {
       if (values.length > 1) {
+        const counts = new Map();
+        let countInRange = 0;
+        const lastBin = Math.max(0, Math.ceil(range / binSize) - 1);
+        values.forEach((value) => {
+          if (value < globalMin || value > globalMax) return;
+          const bin = Math.min(lastBin, Math.floor((value - globalMin) / binSize));
+          counts.set(bin, (counts.get(bin) || 0) + 1);
+          countInRange += 1;
+        });
+        counts.forEach((count) => { tallestHistogram = Math.max(tallestHistogram, count / (countInRange * binSize)); });
         traces.push({
           x: values,
           type: 'histogram',
@@ -641,6 +628,7 @@ export function buildEnergyDistributionPlot({
           widths.push(Math.abs(Number(s.bins[i + 1]) - Number(s.bins[i])));
           y.push(Number(density[i]) || 0);
         }
+        y.forEach((value) => { if (Number.isFinite(value)) tallestHistogram = Math.max(tallestHistogram, value); });
         traces.push({
           x: centers,
           y,
@@ -709,6 +697,21 @@ export function buildEnergyDistributionPlot({
         }
       }
     }
+  });
+
+  // A single observation is not a density estimate. Match only the displayed
+  // distributions' height, excluding poses and decorative peak markers.
+  const poseHeight = Math.max(tallestCurve, tallestHistogram) || 1;
+  poses.forEach((pose) => {
+    traces.push({
+      x: [pose.x, pose.x],
+      y: [0, poseHeight],
+      type: 'scatter',
+      mode: 'lines',
+      name: pose.label,
+      line: { color: pose.color, width: 2.5, dash: pose.lineDash },
+      hovertemplate: `${pose.label}<br>energy: %{x:.3f}<br>single frame (not a density)<extra></extra>`,
+    });
   });
 
   const automaticPeakHeight = tallestCurve > 0 ? tallestCurve * 1.1 : 1;

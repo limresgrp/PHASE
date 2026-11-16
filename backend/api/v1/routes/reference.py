@@ -79,6 +79,7 @@ class PdbIds(BaseModel):
     chain_ids: dict[str, str] = Field(default_factory=dict)
     name_template: str = "PDB_{pdb_id}"
     expected_hashes: dict[str, str] | None = None
+    build_descriptors: bool = True
 
 
 @router.post(BASE + "/states/from-pdb-ids")
@@ -86,5 +87,5 @@ async def from_pdb_ids(project_id: str, system_id: str, payload: PdbIds):
     await call(project_store.get_system, project_id, system_id)
     results = await call(import_pdb_ids, project_store, project_id, system_id, payload.pdb_ids,
                          preview=payload.preview, chain_ids=payload.chain_ids, name_template=payload.name_template,
-                         expected_hashes=payload.expected_hashes)
+                         expected_hashes=payload.expected_hashes, build_descriptors=payload.build_descriptors)
     return {"results": results, "system": serialize_system(await call(project_store.get_system, project_id, system_id))}

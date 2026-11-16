@@ -295,6 +295,7 @@ def test_predict_cluster_adp_falls_back_to_nearest_training_label_on_dadapy_buff
 def test_run_md_samples_refresh_job_filters_selected_states(monkeypatch, tmp_path):
     data_root = tmp_path / "data"
     monkeypatch.setenv("PHASE_DATA_ROOT", str(data_root))
+    monkeypatch.setenv("PHASE_STATE_ASSIGN_WORKERS", "8")
 
     store = ProjectStore(base_dir=data_root / "projects")
     store.create_project("Project", project_id="proj")
@@ -328,6 +329,7 @@ def test_run_md_samples_refresh_job_filters_selected_states(monkeypatch, tmp_pat
         workers=1,
         progress_callback=None,
     ):
+        assert workers == 1
         seen.append(state_id)
         return {
             "sample_id": sample_id or f"sample-{state_id}",
@@ -343,7 +345,7 @@ def test_run_md_samples_refresh_job_filters_selected_states(monkeypatch, tmp_pat
     out = run_md_samples_refresh_job(
         "job-1",
         {"project_id": "proj", "system_id": "sys", "cluster_id": "cluster1"},
-        {"state_ids": ["state2"], "overwrite": True, "cleanup": True},
+        {"state_ids": ["state2"], "overwrite": True, "cleanup": True, "workers": 1},
     )
 
     assert seen == ["state2"]

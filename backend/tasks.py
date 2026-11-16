@@ -1887,7 +1887,7 @@ def run_md_samples_refresh_job(
 
     overwrite = bool(params.get("overwrite", True))
     cleanup = bool(params.get("cleanup", True))
-    state_eval_workers = _default_state_assignment_workers()
+    state_eval_workers = max(1, int(params.get("workers") or _default_state_assignment_workers()))
     requested_state_ids: List[str] = []
     seen_state_ids: set[str] = set()
     for raw in params.get("state_ids") or []:

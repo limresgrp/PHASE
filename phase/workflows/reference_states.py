@@ -145,10 +145,6 @@ def load_alignment(store, system, state):
 def canonical_mapping(store, system, state):
     alignment = load_alignment(store, system, state)
     if alignment:
-        missing = alignment.get("missing_selected_residues", [])
-        if missing:
-            raise ValueError("Alignment succeeded, but selected reference residues are missing: " + ", ".join(missing)
-                             + ". Descriptors cannot be built without changing the canonical topology. Use a complete structure or a new system with a smaller reference selection.")
         reference = store.resolve_path(system.project_id, system.system_id, system.reference_pdb_file)
         topology = store.resolve_path(system.project_id, system.system_id, state.pdb_file)
         if _hash(reference) != alignment["reference_sha256"] or _hash(topology) != alignment["target_sha256"]:
@@ -164,7 +160,7 @@ def canonical_mapping(store, system, state):
     else:
         raise ValueError("State has no reference correspondence; import it through reference-aware ingestion.")
     mapping = selection_mapping(topology, identities)
-    return {key: mapping[key] for key in system.reference_residue_keys}
+    return {key: mapping[key] for key in system.reference_residue_keys if key in mapping}
 
 
 def validate_trajectory(topology, trajectory):
@@ -211,8 +207,6 @@ def create_reference_state(store, project_id, system_id, *, name, state_id=None,
         validate_trajectory(topology, trajectory)
     from phase.common.slice_utils import parse_slice_spec
     slice_value, stride = parse_slice_spec(slice_spec) if slice_spec else (None, 1)
-    if build_descriptors and metadata and metadata["missing_selected_residues"]:
-        raise ValueError("Cannot build descriptors; missing selected reference residues: " + ", ".join(metadata["missing_selected_residues"]))
     storage_key = allocate_state_storage_key(system, name, state_id)
     dirs = store.ensure_state_directories(project_id, system_id, state_id, storage_key=storage_key)
     directory, base = dirs["state_dir"], dirs["system_dir"]

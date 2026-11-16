@@ -98,6 +98,7 @@ class DescriptorState:
     created_at: str = field(default_factory=_utc_now)
     reference_alignment: Optional[Dict[str, Any]] = None
     alignment_status: Optional[str] = None
+    missing_residue_keys: List[str] = field(default_factory=list)
 
 
 @dataclass

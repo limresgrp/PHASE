@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+from phase.potts.masking import observed_labels
 
 
 @dataclass
@@ -27,23 +28,18 @@ class PottsModel:
         return [int(v.shape[0]) for v in self.h]
 
     def energy(self, x: np.ndarray) -> float:
-        e = 0.0
-        for r, hr in enumerate(self.h):
-            e += float(hr[int(x[r])])
-        for (r, s) in self.edges:
-            mat = self.J[(r, s)]
-            e += float(mat[int(x[r]), int(x[s])])
-        return e
+        return float(self.energy_batch(np.asarray(x)[None, :])[0])
 
     def energy_batch(self, X: np.ndarray) -> np.ndarray:
         # X: (S,N)
+        X, observed = observed_labels(X, self.K_list())
         S, N = X.shape
         e = np.zeros(S, dtype=float)
         for r in range(N):
-            e += self.h[r][X[:, r]]
+            e += np.where(observed[:, r], self.h[r][X[:, r]], 0.0)
         for (r, s) in self.edges:
             mat = self.J[(r, s)]
-            e += mat[X[:, r], X[:, s]]
+            e += np.where(observed[:, r] & observed[:, s], mat[X[:, r], X[:, s]], 0.0)
         return e
 
     def neighbors(self) -> List[List[int]]:
@@ -295,8 +291,8 @@ def fit_potts_pseudolikelihood_torch(
     l2: float = 1e-5,
     lambda_J_block: float = 1e-4,
     zero_sum_gauge: bool = True,
-    lr: float = 1e-3,
-    lr_min: float = 1e-5,
+    lr: float = 1e-2,
+    lr_min: float = 1e-4,
     lr_schedule: str = "cosine",
     epochs: int = 200,
     batch_size: int = 512,
@@ -636,7 +632,7 @@ def fit_potts_delta_pseudolikelihood_torch(
     lambda_h: float = 0.0,
     lambda_J: float = 0.0,
     zero_sum_gauge: bool = True,
-    lr: float = 1e-3,
+    lr: float = 1e-2,
     lr_min: float = 1e-3,
     lr_schedule: str = "cosine",
     epochs: int = 200,

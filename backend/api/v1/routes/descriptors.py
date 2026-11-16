@@ -230,7 +230,9 @@ async def get_state_descriptors(
         angles_payload[key] = {}
         n_dims = min(sampled.shape[1], len(dihedral_keys))
         for dim_idx, dim_name in enumerate(dihedral_keys[:n_dims]):
-            angles_payload[key][dim_name] = (sampled[:, dim_idx] * 180.0 / np.pi).tolist()
+            values = sampled[:, dim_idx] * 180.0 / np.pi
+            angles_payload[key][dim_name] = [float(value) if np.isfinite(value) else None for value in values]
+        angles_payload[key]["missing_mask"] = (~np.all(np.isfinite(sampled), axis=1)).tolist()
 
         if state_labels_arr is not None:
             res_idx = key_to_col.get(key)
@@ -352,6 +354,7 @@ async def get_state_descriptors(
             halo_payload["halo_rate_condition_types"] = [row["type"] for row in rows]
 
     response = {
+        "missing_residue_keys": state_meta.missing_residue_keys,
         "residue_keys": keys_to_use,
         "dihedral_keys": dihedral_keys,
         "residue_mapping": state_meta.residue_mapping or {},

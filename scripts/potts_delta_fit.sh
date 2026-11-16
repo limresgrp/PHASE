@@ -148,8 +148,8 @@ if [ -z "$STATE_IDS" ]; then
 fi
 
 EPOCHS="$(prompt "Epochs" "200")"
-LR="$(prompt "Learning rate" "1e-3")"
-LR_MIN="$(prompt "Learning rate min" "1e-5")"
+LR="$(prompt "Learning rate" "1e-2")"
+LR_MIN="$(prompt "Learning rate min" "1e-4")"
 LR_SCHEDULE="$(prompt "Learning rate schedule (cosine/none)" "cosine")"
 BATCH_SIZE="$(prompt "Batch size" "1024")"
 SEED="$(prompt "Random seed" "0")"

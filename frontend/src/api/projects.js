@@ -1,4 +1,5 @@
 import { requestJSON, requestBlob, requestBlobWithBody, API_BASE } from './client';
+import { preserveMissingAnalysisValues } from '../utils/missingAnalysisValues';
 
 export function fetchProjects() {
   return requestJSON('/projects');
@@ -196,7 +197,7 @@ export function fetchClusterAnalysisData(projectId, systemId, clusterId, analysi
   const q = params.toString();
   return requestJSON(
     `/projects/${projectId}/systems/${systemId}/metastable/clusters/${clusterId}/analyses/${analysisType}/${analysisId}/data${q ? `?${q}` : ''}`
-  );
+  ).then(preserveMissingAnalysisValues);
 }
 
 export function fetchEndpointFrustrationFramewise(
@@ -215,7 +216,7 @@ export function fetchEndpointFrustrationFramewise(
   params.set('includeEdges', options?.includeEdges ? '1' : '0');
   return requestJSON(
     `/projects/${projectId}/systems/${systemId}/metastable/clusters/${clusterId}/analyses/endpoint_frustration/${analysisId}/samples/${encodeURIComponent(sampleId)}/framewise?${params.toString()}`
-  );
+  ).then(preserveMissingAnalysisValues);
 }
 
 export function deleteClusterAnalysis(projectId, systemId, clusterId, analysisType, analysisId) {

@@ -957,11 +957,15 @@ export default function DeltaEvalPage() {
       return {
         id,
         sample_id: sampleIds[idx] || '',
-        label: sampleLabels[idx] || sampleIds[idx] || `sample ${idx + 1}`,
+        label: `${sampleLabels[idx] || sampleIds[idx] || `sample ${idx + 1}`}${analysisData?.metadata?.sample_missing_residue_indices?.[id]?.length ? ` [partial: ${analysisData.metadata.sample_missing_residue_indices[id].length} missing]` : ''}`,
         kind: sampleTypes[idx] || 'sample',
         type: sampleTypes[idx] || 'sample',
         bins,
         density: Array.isArray(row) ? row.map(Number) : [],
+        values: Number(analysisData?.data?.sample_frame_counts?.[idx]) === 1
+          && analysisData?.data?.delta_energy_mean?.[idx] != null
+          && Number.isFinite(Number(analysisData.data.delta_energy_mean[idx]))
+          ? [Number(analysisData.data.delta_energy_mean[idx])] : undefined,
         color: deltaEnergySeriesColors[id] || pickEnergyColor(idx),
         lineDash: style.lineDash || 'solid',
         showPeakLine: Boolean(style.showPeakLine),
@@ -1585,6 +1589,7 @@ export default function DeltaEvalPage() {
                       dark
                     />
                   </div>
+                  {Object.values(analysisData?.metadata?.sample_missing_residue_indices || {}).some((indices) => indices.length) && <p className="text-xs text-amber-300">Partial structures: masked nodes and edges touching them contribute zero. These scores are partial Hamiltonians, not marginal energies; compare coverage as well as energy.</p>}
                   {deltaEnergyPlot ? (
                     <EnergyDistributionPlot plot={deltaEnergyPlot} height={340} />
                   ) : (

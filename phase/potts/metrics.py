@@ -11,8 +11,10 @@ def marginals(labels: np.ndarray, K: Sequence[int]) -> List[np.ndarray]:
     K = list(map(int, K))
     out = []
     for r in range(N):
-        counts = np.bincount(labels[:, r], minlength=K[r]).astype(float)
-        p = counts / max(1, counts.sum())
+        values = labels[:, r]
+        values = values[(values >= 0) & (values < K[r])]
+        counts = np.bincount(values, minlength=K[r]).astype(float)
+        p = counts / counts.sum() if counts.sum() else np.full(K[r], np.nan)
         out.append(p)
     return out
 
@@ -29,8 +31,9 @@ def pairwise_joints_on_edges(
     for r, s in edges:
         Kr, Ks = K[r], K[s]
         counts = np.zeros((Kr, Ks), dtype=float)
-        np.add.at(counts, (labels[:, r], labels[:, s]), 1.0)
-        p = counts / max(1, counts.sum())
+        keep = (labels[:, r] >= 0) & (labels[:, s] >= 0) & (labels[:, r] < Kr) & (labels[:, s] < Ks)
+        np.add.at(counts, (labels[keep, r], labels[keep, s]), 1.0)
+        p = counts / counts.sum() if counts.sum() else np.full((Kr, Ks), np.nan)
         out[(r, s)] = p
     return out
 
@@ -48,6 +51,8 @@ def _kl(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
 def js_divergence(p: np.ndarray, q: np.ndarray) -> float:
     p = np.asarray(p, dtype=float)
     q = np.asarray(q, dtype=float)
+    if not p.size or not q.size or not np.all(np.isfinite(p)) or not np.all(np.isfinite(q)):
+        return float("nan")
     m = 0.5 * (p + q)
     return 0.5 * _kl(p, m) + 0.5 * _kl(q, m)
 
@@ -74,7 +79,8 @@ def avg_js_over_edges(
         pa = P_a[e].ravel()
         pb = P_b[e].ravel()
         vals.append(js_divergence(pa, pb))
-    return float(np.mean(vals)) if vals else float("nan")
+    finite = np.asarray(vals)[np.isfinite(vals)]
+    return float(np.mean(finite)) if finite.size else float("nan")
 
 
 def combined_distance(
@@ -97,7 +103,7 @@ def combined_distance(
     """
     p_a = marginals(X_a, K)
     p_b = marginals(X_b, K)
-    js_m = float(np.mean(per_residue_js(p_a, p_b)))
+    js_m = float(np.nanmean(per_residue_js(p_a, p_b)))
 
     if w_pair != 0.0 and len(edges) > 0:
         P_a = pairwise_joints_on_edges(X_a, K, edges)

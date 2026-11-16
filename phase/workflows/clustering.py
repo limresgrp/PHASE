@@ -22,6 +22,7 @@ from dadapy import Data
 from phase.io.descriptors import load_descriptor_npz
 from phase.services.project_store import DescriptorState, ProjectStore, SystemMetadata
 from phase.potts.sample_io import SAMPLE_NPZ_FILENAME, save_sample_npz, _as_string_array
+from phase.potts.masking import MISSING_LABEL
 
 
 def _slug(value: str) -> str:
@@ -592,6 +593,19 @@ def _fit_hierarchical_frozen_gmm(
     subsample_indices: Optional[np.ndarray] = None,
 ) -> tuple[np.ndarray, np.ndarray, int, Dict[str, Any], int, Dict[str, Any]]:
     """Cluster a residue with scipy hierarchical and build a frozen Gaussian predictor."""
+    observed = np.all(np.isfinite(samples), axis=1)
+    if not np.all(observed):
+        labels = np.full(len(samples), MISSING_LABEL, dtype=np.int32)
+        if not np.any(observed):
+            return labels, labels.copy(), 0, {"missing_coordinates": len(samples)}, 0, None
+        halo, assigned, k, diagnostics, size, model = _fit_hierarchical_frozen_gmm(
+            samples[observed], n_clusters=n_clusters, cluster_selection_mode=cluster_selection_mode,
+            inconsistent_threshold=inconsistent_threshold, inconsistent_depth=inconsistent_depth,
+            linkage_method=linkage_method, covariance_type=covariance_type, reg_covar=reg_covar,
+            halo_percentile=halo_percentile, max_cluster_frames=max_cluster_frames)
+        full_halo, full_assigned = labels.copy(), labels.copy()
+        full_halo[observed], full_assigned[observed] = halo, assigned
+        return full_halo, full_assigned, k, diagnostics, size, model
     if samples.ndim != 2 or samples.shape[0] == 0:
         empty = np.array([], dtype=np.int32)
         model = {"kind": "frozen_gmm", "means": [], "covariances": [], "weights": []}
@@ -735,6 +749,15 @@ def _predict_labels_with_model(
     density_maxk: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels for one residue with ADP, frozen GMM, or legacy ADP pair models."""
+    samples = np.asarray(samples, dtype=float)
+    observed = np.all(np.isfinite(samples), axis=1)
+    if not np.all(observed):
+        assigned = np.full(len(samples), MISSING_LABEL, dtype=np.int32)
+        halo = assigned.copy()
+        if np.any(observed):
+            assigned[observed], halo[observed] = _predict_labels_with_model(
+                model, samples[observed], density_maxk=density_maxk)
+        return assigned, halo
     if model is None:
         n = int(samples.shape[0]) if samples.ndim > 0 else 0
         empty = np.full((n,), -1, dtype=np.int32)
@@ -807,6 +830,19 @@ def _cluster_with_subsample(
     residue_key: str | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, int, Dict[str, Any], int, Data]:
     """Fit ADP on a subsample if requested, then predict labels on all frames."""
+    samples = np.asarray(samples, dtype=float)
+    observed = np.all(np.isfinite(samples), axis=1)
+    if not np.all(observed):
+        labels = np.full(len(samples), MISSING_LABEL, dtype=np.int32)
+        if not np.any(observed):
+            return labels, labels.copy(), 0, {"missing_coordinates": int(len(samples))}, 0, None
+        # Subsample within available observations, retaining original frame order.
+        halo, assigned, k, diagnostics, size, model = _cluster_with_subsample(
+            samples[observed], density_maxk=density_maxk, density_z=density_z,
+            max_cluster_frames=max_cluster_frames, residue_key=residue_key)
+        full_halo, full_assigned = labels.copy(), labels.copy()
+        full_halo[observed], full_assigned[observed] = halo, assigned
+        return full_halo, full_assigned, k, diagnostics, size, model
     def _coerce_1d(labels: np.ndarray) -> np.ndarray:
         arr = np.asarray(labels, dtype=np.int32)
         if arr.ndim > 1:
@@ -1191,7 +1227,7 @@ def assign_cluster_labels_to_states(
         sample_dir.mkdir(parents=True, exist_ok=True)
         out_path = sample_dir / SAMPLE_NPZ_FILENAME
         labels_primary = labels_assigned
-        keep = np.all(labels_primary >= 0, axis=1)
+        keep = np.all((labels_primary >= 0) | (labels_primary == MISSING_LABEL), axis=1)
         if keep.size and not np.all(keep):
             labels_primary = labels_primary[keep]
             labels_halo = labels_halo[keep]
@@ -1264,7 +1300,7 @@ def assign_cluster_labels_to_states(
             sample_dir.mkdir(parents=True, exist_ok=True)
             out_path = sample_dir / SAMPLE_NPZ_FILENAME
             labels_primary = labels_assigned
-            keep = np.all(labels_primary >= 0, axis=1)
+            keep = np.all((labels_primary >= 0) | (labels_primary == MISSING_LABEL), axis=1)
             if keep.size and not np.all(keep):
                 labels_primary = labels_primary[keep]
                 labels_halo = labels_halo[keep]
@@ -1402,6 +1438,9 @@ def evaluate_state_with_models(
         if samples.shape[0] != n_frames:
             raise ValueError("Descriptor frame counts are inconsistent across residues.")
         samples_by_residue[idx] = samples
+        missing_rows = ~np.all(np.isfinite(samples), axis=1)
+        labels_halo[missing_rows, idx] = MISSING_LABEL
+        labels_assigned[missing_rows, idx] = MISSING_LABEL
 
     valid_residue_indices = [idx for idx, model in enumerate(residue_models) if model is not None]
     total_valid = max(1, len(valid_residue_indices))
@@ -1463,7 +1502,7 @@ def evaluate_state_with_models(
     sample_dir.mkdir(parents=True, exist_ok=True)
     out_path = sample_dir / SAMPLE_NPZ_FILENAME
     frame_indices = frame_indices_full.copy()
-    keep = np.all(labels_assigned >= 0, axis=1)
+    keep = np.all((labels_assigned >= 0) | (labels_assigned == MISSING_LABEL), axis=1)
     if keep.size and not np.all(keep):
         labels_assigned = labels_assigned[keep]
         labels_halo = labels_halo[keep]
@@ -1490,6 +1529,8 @@ def evaluate_state_with_models(
         "path": rel,
         "paths": {"summary_npz": rel},
         "params": {},
+        "missing_residue_keys": [key for idx, key in enumerate(residue_keys) if np.any(labels_assigned[:, idx] == MISSING_LABEL)],
+        "missing_label": MISSING_LABEL,
     }
     # Sample metadata is persisted via ProjectStore.save_system(). We return the full entry so
     # both offline scripts and the webserver can append/update it in cluster metadata.
@@ -2415,6 +2456,10 @@ def _collect_cluster_inputs(
             raise ValueError(f"No frames matched metastable '{meta_id}'.")
 
     residue_resnames = _extract_residue_resnames(residue_reference_pdb, residue_keys, residue_mapping)
+    if system_meta.reference_pdb_file:
+        residue_resnames = {record["residue_key"]: record["resname"]
+                            for record in system_meta.reference_residue_records
+                            if record["residue_key"] in residue_keys}
     residue_symmetry_keys = _build_residue_symmetry_keys(residue_keys, residue_resnames=residue_resnames)
 
     return {

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import numpy as np
 
 import json
 import re
@@ -187,6 +188,9 @@ def _build_state_artifacts(
         "residue_selection": selection_used,
         "resid_shift": int(resid_shift),
         "canonical_reference": canonical_keys is not None,
+        "missing_residue_keys": [key for key in build_result.residue_keys
+                                 if not np.any(np.isfinite(build_result.features[key]))],
+        "missing_descriptor_policy": "NaN coordinates; cluster label -2; omit incident energy terms",
         "backbone_neighbor_policy": "chain topology order with C-N distance 0.5..1.9 A" if canonical_keys is not None else "MDAnalysis residue numbering",
     }
     artifact_paths["metadata"].write_text(json.dumps(metadata_payload, indent=2))
@@ -266,6 +270,8 @@ def build_state_descriptors(
     state_meta.n_frames = build_result.n_frames
     state_meta.residue_keys = build_result.residue_keys
     state_meta.residue_mapping = build_result.residue_mapping
+    state_meta.missing_residue_keys = [key for key in build_result.residue_keys
+                                      if not np.any(np.isfinite(build_result.features[key]))]
     state_meta.resid_shift = shift_value
     state_meta.residue_selection = None if canonical_keys is not None else (residue_filter.strip() if residue_filter else None)
 

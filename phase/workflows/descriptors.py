@@ -141,17 +141,16 @@ class DescriptorPreprocessor:
             raise ValueError("Descriptor extraction returned no frames.")
 
         if canonical_keys is not None:
-            missing = [key for key in canonical_keys if key not in features or not np.all(np.isfinite(features[key]))]
-            if missing:
-                raise ValueError("Missing/nonfinite canonical descriptors: " + ", ".join(missing))
-            features = {key: features[key] for key in canonical_keys}
+            template = next(iter(features.values()))
+            features = {key: (features[key] if key in features else np.full(
+                (n_frames, *template.shape[1:]), np.nan, dtype=float)) for key in canonical_keys}
         else:
             features, dropped = self._filter_degenerate_features(features)
         if not features:
             raise ValueError("All residue descriptors are degenerate (nan/inf/zero).")
 
         residue_keys = list(canonical_keys) if canonical_keys is not None else sorted(features.keys())
-        residue_mapping = {key: selections[key] for key in residue_keys}
+        residue_mapping = {key: selections[key] for key in residue_keys if key in selections}
 
         return SingleDescriptorBuildResult(
             features=features,

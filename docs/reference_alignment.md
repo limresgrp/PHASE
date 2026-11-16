@@ -28,7 +28,8 @@ the reference or its selection after any states or clusters exist is refused.
 2. Open the system's **Reference Structure** panel. Inspect the chosen chain,
    sequence length and residue map, including insertion codes and selected keys.
 3. Choose **Add state / replica**, provide a name and choose the reference as
-   topology. Optionally supply a matching trajectory and build descriptors.
+   topology. Optionally supply a matching trajectory. **Build descriptors now**
+   is enabled by default, including for PDB-ID imports.
    Without a trajectory the PDB is a single frame. With a trajectory, only its
    frames are used, never an extra frame from the PDB.
 4. For another experimental structure choose **Upload another PDB**, then
@@ -44,6 +45,23 @@ the reference or its selection after any states or clusters exist is refused.
    metastable assignments, even when immediate descriptor building is disabled.
    Rebuild/reassign MD samples and rerun downstream analyses when replacing data;
    existing cluster/model/analysis snapshots are not silently rewritten.
+
+### Assigning States to Existing Clusters
+
+During state creation or PDB-ID import, select one or more completed runs under
+**Also assign to cluster runs**. Descriptors are built first; only successfully
+created, descriptor-ready states are submitted for assignment. Each selected
+cluster gets a background job using one compute worker, so one RQ worker is
+sufficient. Follow **View assignment progress** to see status and errors.
+
+After uploading, use **System > Reference Structure > Assign states to clusters**.
+Choose descriptor-ready states and cluster runs, then **Run assignment**. Results
+are MD samples in **Potts Models > Samples**. The older entry point remains
+**Potts Models > Samples > New sample > Assign MD states**.
+
+Incomplete structures can be built and assigned without reconstructing loops.
+Available residues are extracted normally; absent reference residues retain their
+canonical columns and are marked missing. See the mask semantics below.
 
 An aligned state's per-state filter/offset controls are hidden: the system
 reference selection is authoritative. Legacy state controls remain available.
@@ -87,7 +105,8 @@ python -m phase.scripts.offline_system --root "$PHASE_DATA_ROOT" alignment \
 ```
 
 `add-state` normally builds descriptors. `--no-build-descriptors` only registers
-the mapped structure, useful for partial structures. `attach-traj` copies raw
+the mapped structure without descriptors; partial structures can also build
+descriptors. `attach-traj` copies raw
 coordinates into the shared data root by default. `--no-build-descriptors`
 defers rebuilding. Always use `--copy-traj` on `add-state` if Docker must access
 the trajectory; an external host path is not automatically visible in a container.
@@ -151,12 +170,38 @@ causes descriptor generation to fail rather than reuse a stale mapping.
 
 ## Missing Residues and Descriptor Ordering
 
-A partial alignment can be registered without building descriptors. The state
-retains the **complete ordered canonical selection**, with null correspondence
-entries for absent residues. Descriptor generation refuses missing selected
-residues and names them explicitly. It never shifts following columns, silently
-drops a selected residue or fabricates coordinates. Use a complete structure or
-a new system with an appropriate smaller reference selection.
+Partial alignments retain the **complete ordered canonical selection**. Absent
+residues have null correspondence entries and NaN descriptor vectors; following
+columns never shift. State/descriptor metadata list `missing_residue_keys`.
+The same workflow is used by the console and webserver.
+
+Cluster assignment predicts only finite descriptor observations. Missing
+coordinates receive label **-2**, distinct from halo/unassigned label **-1**.
+Sample NPZs persist a `(frames, residues)` boolean `missing_mask`. A partial
+frame is retained: it is not an invalid SA frame, a new cluster, or an imputed
+conformation. JS marginals use observed frames per residue; edge distributions
+use frames where both endpoints exist. No observations means unavailable
+(NaN/null), not zero JS or a uniform fabricated distribution.
+
+**Energy semantics:** missing node fields and every coupling touching a missing
+residue contribute exactly zero, for both single-model and delta-energy scores.
+Energy component NPZs save observation masks; analysis metadata record node/edge
+coverage and missing residue indices. Curves are marked partial in the web UI.
+This is a partial Hamiltonian in the analysis gauge, **not** marginalization over
+unknown conformations. Partial scores depend on coverage and gauge; compare
+structures using matched residue coverage when making quantitative claims.
+There is no automatic rescaling to full-protein energy.
+
+Commitment/frustration on unavailable nodes/edges is unavailable (NaN), and
+normalization excludes those values. Complete-system results keep the same
+semantics. Missing coordinates are never treated as an extra categorical state
+for fitting or as a warm-start conformation: use complete training/initialization
+frames. Specialized analyses that require complete conformations are not made
+missing-aware merely by attaching a mask.
+
+For existing incomplete states, click **Build**, then **Assign states to clusters**,
+then rerun energies/JS to obtain the new masks. Old analysis snapshots are not
+rewritten automatically.
 
 Mapped residues are resolved to exact topology `resindex` selections using full
 chain/number/insertion identities. Descriptor NPZ keys, state metadata, clustering
@@ -172,9 +217,10 @@ The policy is recorded in descriptor metadata and reused for backmapping indices
 ## Importing PDB IDs
 
 The web panel supports up to 20 IDs per request. Preview the alignments, choose
-entries individually or select good/excellent complete mappings, then create the
+entries individually or select high-confidence mappings (including gaps), then create the
 selected states. Errors are reported per ID, not as an all-or-nothing batch.
-Downloaded structures are PDB-only states; build their descriptors afterward.
+Downloaded structures are PDB-only states. Web imports build descriptors by
+default; uncheck **Build descriptors now** to keep a structure without descriptors.
 
 ```bash
 python -m phase.scripts.offline_system --root "$PHASE_DATA_ROOT" add-pdb-ids \

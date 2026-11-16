@@ -17,12 +17,13 @@ export function StateCard({
   const [residueSelection, setResidueSelection] = useState(state?.residue_selection || '');
   const [residShift, setResidShift] = useState(String(state?.resid_shift ?? 0));
   const [rebuildDescriptors, setRebuildDescriptors] = useState(true);
+  const shouldBuild = !file || rebuildDescriptors;
 
   const descriptorLabel = state?.descriptor_file ? 'Ready' : 'Not built';
   const trajectoryLabel = state?.source_traj || '—';
   const trajectoryStoredExternally = typeof state?.trajectory_file === 'string' && state.trajectory_file.startsWith('/');
   const uploadButtonLabel = uploading
-    ? (rebuildDescriptors ? 'Building...' : 'Uploading...')
+    ? (shouldBuild ? 'Building...' : 'Uploading...')
     : file
       ? (rebuildDescriptors ? 'Upload & Build' : 'Upload only')
       : 'Build';
@@ -70,6 +71,7 @@ export function StateCard({
         </div>
       </dl>
       <AlignmentDetails alignment={state.alignment || state.reference_alignment} status={state.alignment_status} />
+      {!!state.missing_residue_keys?.length && <p className="text-xs text-amber-300">Partial structure: {state.missing_residue_keys.length} masked residues ({state.missing_residue_keys.join(', ')}). Missing nodes and incident edges contribute zero energy.</p>}
 
       {(uploading || progress !== undefined || processing) && (
         <div className="space-y-1 text-xs text-gray-300">
@@ -91,6 +93,7 @@ export function StateCard({
           <label className="block text-sm text-gray-300 mb-1">Upload/save trajectory file</label>
           <input
             type="file"
+            aria-label="Upload/save trajectory file"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
             className="w-full text-sm text-gray-300"
           />
@@ -141,7 +144,8 @@ export function StateCard({
         <label className="flex items-start gap-2 text-sm text-gray-300">
           <input
             type="checkbox"
-            checked={rebuildDescriptors}
+            checked={shouldBuild}
+            disabled={!file}
             onChange={(e) => setRebuildDescriptors(e.target.checked)}
             className="mt-1"
           />
@@ -153,7 +157,7 @@ export function StateCard({
           </span>
         </label>
         <button
-          onClick={() => onUpload(state.state_id, file, sliceSpec, residueSelection, residShift, rebuildDescriptors)}
+          onClick={() => onUpload(state.state_id, file, sliceSpec, residueSelection, residShift, shouldBuild)}
           disabled={uploading || (!file && !state?.pdb_file)}
           className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2 rounded-md transition-colors disabled:opacity-50"
         >

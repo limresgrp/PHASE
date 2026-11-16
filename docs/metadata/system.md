@@ -34,6 +34,7 @@ Common fields
 
 State metadata (per `states[state_id]`)
 - `alignment_status`: `reference`, `aligned`, `partial`, or null/legacy.
+- `missing_residue_keys`: canonical keys with absent coordinates after descriptor building; columns remain present as NaN descriptors and cluster label -2, with a separate sample missing mask.
 - `reference_alignment`: alignment provenance with `metadata_file` pointing at the authoritative state sidecar. Includes forward/reverse residue maps, coverage, identity, gaps, missing selected keys, scoring settings, source and structure fingerprints.
 - `state_id` (string)
 - `name` (string)

@@ -28,5 +28,51 @@ test('reference is immutable once states exist and partial details name missing 
   render(<><ReferenceStructurePanel projectId="p" systemId="s" system={{ ...system, states: { a: { state_id: 'a' } } }} onChanged={jest.fn()} />
     <AlignmentDetails status="partial" alignment={{ missing_selected_residues: ['res_45A'], quality: 'warning' }} /></>);
   expect(screen.getByText('Change reference / selection')).toBeDisabled();
-  expect(screen.getByText(/Descriptors cannot be built: missing res_45A/)).toBeInTheDocument();
+  expect(screen.getByText(/Missing coordinates \(masked in descriptors and energies\): res_45A/)).toBeInTheDocument();
+});
+
+test('creation builds by default and queues assignment only for newly created states', async () => {
+  const onChanged = jest.fn();
+  requestJSON.mockResolvedValueOnce({ states: { old: { state_id: 'old', descriptor_file: 'old.npz' }, fresh: { state_id: 'fresh', descriptor_file: 'fresh.npz' } } })
+    .mockResolvedValueOnce({ job_id: 'assignment-job' });
+  render(<ReferenceStructurePanel projectId="p" systemId="s" system={{ ...system, states: { old: { state_id: 'old' } }, metastable_clusters: [{ cluster_id: 'c', name: 'Cluster One', path: 'cluster.npz' }] }} onChanged={onChanged} />);
+  fireEvent.click(screen.getByText('+ Add state / replica'));
+  fireEvent.change(screen.getByLabelText('State name'), { target: { value: 'New pose' } });
+  expect(screen.getByLabelText('Build descriptors now (PDB-only = one frame)')).toBeChecked();
+  fireEvent.click(screen.getByLabelText('Cluster One'));
+  fireEvent.click(screen.getByText('Create selected state(s)'));
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  expect(requestJSON.mock.calls[0][1].body.get('build_descriptors_after_upload')).toBe('true');
+  expect(requestJSON.mock.calls[1]).toEqual(['/submit/md_samples_refresh', {
+    method: 'POST', body: { project_id: 'p', system_id: 's', cluster_id: 'c', state_ids: ['fresh'], overwrite: true, cleanup: true },
+  }]);
+  expect(screen.getByText('View assignment progress')).toHaveAttribute('href', '/jobs/assignment-job');
+});
+
+test('existing descriptor-ready states can be assigned from System page', async () => {
+  requestJSON.mockResolvedValue({ job_id: 'existing-job' });
+  render(<ReferenceStructurePanel projectId="p" systemId="s" system={{ ...system,
+    states: { pose: { state_id: 'pose', name: 'Crystal pose', descriptor_file: 'pose.npz' }, unbuilt: { state_id: 'unbuilt', name: 'Not ready' } },
+    metastable_clusters: [{ cluster_id: 'c', name: 'Cluster One', path: 'cluster.npz' }],
+  }} onChanged={jest.fn()} />);
+  fireEvent.click(screen.getByText('Assign states to clusters'));
+  expect(screen.queryByText('Not ready')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('Crystal pose'));
+  fireEvent.click(screen.getByLabelText('Cluster One'));
+  fireEvent.click(screen.getByText('Run assignment'));
+  expect(await screen.findByText('View assignment progress')).toBeInTheDocument();
+  expect(requestJSON.mock.calls[0][1].body.state_ids).toEqual(['pose']);
+});
+
+test('partial PDB alignments allow automatic descriptor building with a missing mask', async () => {
+  requestJSON.mockResolvedValueOnce({ quality: 'warning', alignment_status: 'partial', missing_selected_residues: ['res_45A'], correspondence: [] });
+  render(<ReferenceStructurePanel projectId="p" systemId="s" system={system} onChanged={jest.fn()} />);
+  fireEvent.click(screen.getByText('+ Add state / replica'));
+  fireEvent.change(screen.getByLabelText('State name'), { target: { value: 'Partial pose' } });
+  fireEvent.change(screen.getByLabelText('Topology'), { target: { value: 'upload' } });
+  fireEvent.change(screen.getByLabelText('PDB file'), { target: { files: [new File(['ATOM'], 'partial.pdb')] } });
+  fireEvent.click(screen.getByText('Preview alignment(s)'));
+  await waitFor(() => expect(screen.getByText('Create selected state(s)')).toBeEnabled());
+  expect(screen.getByText(/Available residues will be built and assigned/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Build descriptors now (PDB-only = one frame)')).toBeChecked();
 });

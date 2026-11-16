@@ -115,7 +115,7 @@ def test_pdb_only_build_reference_and_shifted_state_same_order(reference_system,
         set_reference(store, "p", "s", ref)
 
 
-def test_partial_state_preserves_keys_and_refuses_build(reference_system, tmp_path):
+def test_partial_state_preserves_keys_and_builds_masked_descriptors(reference_system, tmp_path):
     store, _ = reference_system
     target = pdb(tmp_path / "t.pdb", "ACDEGHIKLMNPQRSTVWY", start=100)
     b = create_reference_state(store, "p", "s", name="Partial", pdb_path=target)
@@ -123,11 +123,14 @@ def test_partial_state_preserves_keys_and_refuses_build(reference_system, tmp_pa
     assert b.alignment_status == "partial"
     assert b.residue_keys == system.reference_residue_keys
     assert b.reference_alignment["missing_selected_residues"] == ["res_12"]
-    with pytest.raises(ValueError, match="res_12"):
-        canonical_mapping(store, system, b)
-    with pytest.raises(ValueError, match="missing selected"):
-        create_reference_state(store, "p", "s", name="Not created", pdb_path=target, build_descriptors=True)
-    assert len(store.get_system("p", "s").states) == 1
+    assert "res_12" not in canonical_mapping(store, system, b)
+    built = create_reference_state(store, "p", "s", name="Built", pdb_path=target, build_descriptors=True)
+    assert built.missing_residue_keys == ["res_12"]
+    with np.load(store.resolve_path("p", "s", built.descriptor_file)) as data:
+        assert list(data.files) == system.reference_residue_keys
+        assert np.all(np.isnan(data["res_12"]))
+        assert np.all(np.isfinite(data["res_11"]))
+    assert len(store.get_system("p", "s").states) == 2
 
 
 def test_bad_alignment_never_registers_state(reference_system, tmp_path):

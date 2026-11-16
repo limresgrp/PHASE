@@ -41,8 +41,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--unassigned-policy", default="drop_frames", choices=["drop_frames", "treat_as_state", "error"])
 
     ap.add_argument("--epochs", type=int, default=200)
-    ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--lr-min", type=float, default=1e-5)
+    ap.add_argument("--lr", type=float, default=1e-2)
+    ap.add_argument("--lr-min", type=float, default=1e-4)
     ap.add_argument("--lr-schedule", type=str, default="cosine", choices=["cosine", "none"])
     ap.add_argument("--batch-size", type=int, default=512)
     ap.add_argument("--seed", type=int, default=0)

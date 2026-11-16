@@ -267,7 +267,7 @@ async def add_system_state(
     use_reference: bool = Form(False),
     trajectory: Optional[UploadFile] = File(None),
     slice_spec: Optional[str] = Form(None),
-    build_descriptors_after_upload: bool = Form(False),
+    build_descriptors_after_upload: bool = Form(True),
 ):
     try:
         system_meta = project_store.get_system(project_id, system_id)

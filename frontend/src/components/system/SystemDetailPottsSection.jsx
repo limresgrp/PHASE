@@ -1318,7 +1318,7 @@ export default function SystemDetailPottsSection(props) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                       {[
                         { key: 'plm_epochs', label: 'PLM epochs', placeholder: '200' },
-                        { key: 'plm_lr', label: 'PLM lr', placeholder: '1e-3' },
+                        { key: 'plm_lr', label: 'PLM lr', placeholder: '1e-2' },
                         { key: 'plm_lr_min', label: 'PLM lr min', placeholder: '1e-4' },
                         { key: 'plm_l2', label: 'PLM L2', placeholder: '1e-5' },
                         { key: 'plm_batch_size', label: 'Batch size', placeholder: '512' },
@@ -1454,7 +1454,7 @@ export default function SystemDetailPottsSection(props) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                       {[
                         { key: 'delta_epochs', label: 'Epochs', placeholder: '200' },
-                        { key: 'delta_lr', label: 'Learning rate', placeholder: '1e-3' },
+                        { key: 'delta_lr', label: 'Learning rate', placeholder: '1e-2' },
                         { key: 'delta_lr_min', label: 'LR min', placeholder: '1e-3' },
                         { key: 'delta_batch_size', label: 'Batch size', placeholder: '512' },
                         { key: 'delta_grad_accum_steps', label: 'Grad accum steps', placeholder: '1' },

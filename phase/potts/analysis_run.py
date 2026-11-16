@@ -24,6 +24,7 @@ from phase.potts.metrics import (
 )
 from phase.potts.potts_model import PottsModel, load_potts_model, zero_sum_gauge_model
 from phase.potts.sample_io import load_sample_npz
+from phase.potts.masking import MISSING_LABEL, observed_labels, energy_coverage
 from phase.potts.sampling import gibbs_sample_potts
 from phase.services.project_store import ProjectStore
 
@@ -897,12 +898,14 @@ def _pairwise_joints_flat_on_edges(
         r_idx = chunk[:, 0]
         s_idx = chunk[:, 1]
         # (T, Echunk)
-        codes = X[:, r_idx] * max_k + X[:, s_idx]
+        observed = (X[:, r_idx] >= 0) & (X[:, s_idx] >= 0)
+        codes = np.maximum(X[:, r_idx], 0) * max_k + np.maximum(X[:, s_idx], 0)
         echunk = int(chunk.shape[0])
         offsets = (np.arange(echunk, dtype=np.int64) * V)[None, :]
-        flat = (codes.astype(np.int64, copy=False) + offsets).ravel()
+        flat = (codes.astype(np.int64, copy=False) + offsets)[observed]
         counts = np.bincount(flat, minlength=echunk * V).astype(float, copy=False).reshape(echunk, V)
-        out[start : start + echunk] = counts / float(T)
+        denominators = observed.sum(axis=0)[:, None]
+        out[start : start + echunk] = np.divide(counts, denominators, out=np.full_like(counts, np.nan), where=denominators > 0)
     return out
 
 
@@ -939,6 +942,9 @@ def compute_md_vs_sample_metrics(
     def _stat(arr: np.ndarray, fn) -> float | None:
         if arr is None or not getattr(arr, "size", 0):
             return None
+        arr = arr[np.isfinite(arr)]
+        if not arr.size:
+            return None
         val = float(fn(arr))
         return val if np.isfinite(val) else None
 
@@ -950,6 +956,10 @@ def compute_md_vs_sample_metrics(
     payload: Dict[str, Any] = {
         "node_js": node_js,
         "edge_js": edge_js,
+        "node_observed_counts_md": np.sum(np.asarray(X_md) >= 0, axis=0),
+        "node_observed_counts_sample": np.sum(np.asarray(X_sample) >= 0, axis=0),
+        "edge_observed_counts_md": np.asarray([np.count_nonzero((X_md[:, r] >= 0) & (X_md[:, s] >= 0)) for r, s in edges]),
+        "edge_observed_counts_sample": np.asarray([np.count_nonzero((X_sample[:, r] >= 0) & (X_sample[:, s] >= 0)) for r, s in edges]),
         "node_js_mean": _stat(node_js, np.mean),
         "node_js_median": _stat(node_js, np.median),
         "node_js_max": _stat(node_js, np.max),
@@ -972,16 +982,19 @@ def compute_sample_energies(model: PottsModel, X: np.ndarray) -> Dict[str, Any]:
 
     # Persist the decomposition used to obtain the total. This keeps analysis
     # generation independent from later residue-selection visualization.
+    coverage = energy_coverage(X, model.edges)
+    X, observed = observed_labels(X, model.K_list())
     node_energies = np.column_stack(
-        [np.asarray(field)[X[:, residue]] for residue, field in enumerate(model.h)]
+        [np.where(observed[:, residue], np.asarray(field)[X[:, residue]], 0.0) for residue, field in enumerate(model.h)]
     ) if model.h else np.zeros((X.shape[0], 0), dtype=float)
     edge_index = np.asarray(model.edges, dtype=np.int32).reshape((-1, 2))
     edge_energies = np.column_stack(
-        [model.J[(int(r), int(s))][X[:, int(r)], X[:, int(s)]] for r, s in model.edges]
+        [np.where(observed[:, r] & observed[:, s], model.J[(int(r), int(s))][X[:, int(r)], X[:, int(s)]], 0.0) for r, s in model.edges]
     ) if model.edges else np.zeros((X.shape[0], 0), dtype=float)
     energies = np.sum(node_energies, axis=1) + np.sum(edge_energies, axis=1)
     if energies is None or energies.size == 0:
         return {
+            **coverage,
             "energies": np.asarray([], dtype=float),
             "node_energies": node_energies,
             "edge_energies": edge_energies,
@@ -992,6 +1005,7 @@ def compute_sample_energies(model: PottsModel, X: np.ndarray) -> Dict[str, Any]:
             "energy_max": None,
         }
     payload: Dict[str, Any] = {
+        **coverage,
         "energies": energies,
         "node_energies": node_energies,
         "edge_energies": edge_energies,
@@ -1128,7 +1142,7 @@ def compute_lambda_sweep_analysis(
         X = np.asarray(X, dtype=int)
         # Defensive: drop frames with unassigned labels (-1) to keep distributions well-defined.
         if X.size and np.any(X < 0):
-            keep = np.all(X >= 0, axis=1)
+            keep = np.all((X >= 0) | (X == MISSING_LABEL), axis=1)
             X = X[keep]
         return X
 
@@ -1424,9 +1438,10 @@ def compute_md_delta_preference(
     diff_model = PottsModel(h=dh_list, J=dJ, edges=list(edges))
 
     # Per-residue contributions (store to compute mean/std cheaply).
+    safe_X, observed = observed_labels(X, model_a.K_list())
     delta_res = np.zeros((T, N), dtype=float)
     for i in range(N):
-        delta_res[:, i] = dh_list[i][X[:, i]]
+        delta_res[:, i] = np.where(observed[:, i], dh_list[i][safe_X[:, i]], 0.0)
     delta_res_mean = np.mean(delta_res, axis=0)
     delta_res_std = np.std(delta_res, axis=0)
 
@@ -1434,7 +1449,7 @@ def compute_md_delta_preference(
     delta_energy = diff_model.energy_batch(X)
     edge_sum = np.zeros((len(edges),), dtype=float)
     for idx, (r, s) in enumerate(edges):
-        vals = dJ[(r, s)][X[:, r], X[:, s]]
+        vals = np.where(observed[:, r] & observed[:, s], dJ[(r, s)][safe_X[:, r], safe_X[:, s]], 0.0)
         edge_sum[idx] = float(np.sum(vals))
     delta_edge_mean = edge_sum / float(T)
 
@@ -1864,7 +1879,9 @@ def compute_delta_transition_analysis(
     def _field_means(X: np.ndarray) -> np.ndarray:
         means = np.zeros((N,), dtype=float)
         for i in range(N):
-            means[i] = float(np.mean(dh_list[i][X[:, i]]))
+            values = X[:, i]
+            values = values[values >= 0]
+            means[i] = float(np.mean(dh_list[i][values])) if values.size else np.nan
         return means
 
     mean_active = _field_means(X_active)
@@ -2005,7 +2022,7 @@ def _selected_edge_neighbor_lists(selected_edges: Sequence[tuple[int, int]]) -> 
 
 
 def _compute_local_node_energies(X: np.ndarray, model: PottsModel, edges: Sequence[tuple[int, int]]) -> np.ndarray:
-    labels = np.asarray(X, dtype=int)
+    labels, observed = observed_labels(X, model.K_list())
     t_count, n_residues = labels.shape
     out = np.zeros((t_count, n_residues), dtype=np.float32)
     for ridx in range(n_residues):
@@ -2014,8 +2031,10 @@ def _compute_local_node_energies(X: np.ndarray, model: PottsModel, edges: Sequen
         r = int(raw_r)
         s = int(raw_s)
         vals = np.asarray(model.coupling(r, s), dtype=float)[labels[:, r], labels[:, s]].astype(np.float32, copy=False)
+        vals = np.where(observed[:, r] & observed[:, s], vals, 0.0)
         out[:, r] += 0.5 * vals
         out[:, s] += 0.5 * vals
+    out[~observed] = np.nan
     return out
 
 
@@ -2024,7 +2043,7 @@ def _compute_selected_edge_energies(
     model: PottsModel,
     selected_edges: Sequence[tuple[int, int]],
 ) -> np.ndarray:
-    labels = np.asarray(X, dtype=int)
+    labels, observed = observed_labels(X, model.K_list())
     t_count = labels.shape[0]
     edge_count = len(selected_edges)
     out = np.zeros((t_count, edge_count), dtype=np.float32)
@@ -2034,6 +2053,7 @@ def _compute_selected_edge_energies(
         out[:, col] = np.asarray(model.coupling(r, s), dtype=float)[labels[:, r], labels[:, s]].astype(
             np.float32, copy=False
         )
+        out[~(observed[:, r] & observed[:, s]), col] = np.nan
     return out
 
 
@@ -2047,7 +2067,7 @@ def _compute_residue_frustration_raw(local_energies: np.ndarray, neighbors_with_
         cols = neighbors_with_self[ridx] if ridx < len(neighbors_with_self) else np.asarray([ridx], dtype=int)
         if not isinstance(cols, np.ndarray) or cols.size == 0:
             cols = np.asarray([ridx], dtype=int)
-        baseline = np.mean(local[:, cols], axis=1, dtype=np.float32)
+        baseline = np.nanmean(local[:, cols], axis=1, dtype=np.float32)
         out[:, ridx] = np.abs(local[:, ridx] - baseline)
     return out
 
@@ -2058,14 +2078,14 @@ def _compute_edge_frustration_raw(edge_energies: np.ndarray, edge_neighbors: Seq
         raise ValueError("edge_energies must be 2D.")
     if edge_vals.shape[1] == 0:
         return np.zeros_like(edge_vals, dtype=np.float32)
-    frame_mean = np.mean(edge_vals, axis=1, dtype=np.float32)
+    frame_mean = np.nanmean(edge_vals, axis=1, dtype=np.float32)
     out = np.zeros_like(edge_vals, dtype=np.float32)
     for col in range(edge_vals.shape[1]):
         cols = edge_neighbors[col] if col < len(edge_neighbors) else np.asarray([col], dtype=int)
         if not isinstance(cols, np.ndarray) or cols.size <= 1:
             baseline = frame_mean
         else:
-            baseline = np.mean(edge_vals[:, cols], axis=1, dtype=np.float32)
+            baseline = np.nanmean(edge_vals[:, cols], axis=1, dtype=np.float32)
         out[:, col] = np.abs(edge_vals[:, col] - baseline)
     return out
 
@@ -2089,13 +2109,13 @@ def _compute_endpoint_frame_scores(
         score_pol_abs_topj = np.zeros((t_count,), dtype=np.float32)
     else:
         j = max(1, min(int(top_j), int(n_residues)))
-        node_sym_sorted = np.sort(node_sym, axis=1)[:, ::-1]
-        node_pol_abs_sorted = np.sort(np.abs(node_pol), axis=1)[:, ::-1]
-        score_sym_topj = np.sum(node_sym_sorted[:, :j], axis=1, dtype=np.float32)
-        score_pol_abs_topj = np.sum(node_pol_abs_sorted[:, :j], axis=1, dtype=np.float32)
-    score_sym_mean = np.mean(node_sym, axis=1, dtype=np.float32) if t_count else np.zeros((0,), dtype=np.float32)
+        node_sym_sorted = np.sort(np.where(np.isfinite(node_sym), node_sym, -np.inf), axis=1)[:, ::-1]
+        node_pol_abs_sorted = np.sort(np.where(np.isfinite(node_pol), np.abs(node_pol), -np.inf), axis=1)[:, ::-1]
+        score_sym_topj = np.sum(np.where(np.isfinite(node_sym_sorted[:, :j]), node_sym_sorted[:, :j], 0), axis=1, dtype=np.float32)
+        score_pol_abs_topj = np.sum(np.where(np.isfinite(node_pol_abs_sorted[:, :j]), node_pol_abs_sorted[:, :j], 0), axis=1, dtype=np.float32)
+    score_sym_mean = np.nanmean(node_sym, axis=1, dtype=np.float32) if t_count else np.zeros((0,), dtype=np.float32)
     score_pol_abs_mean = (
-        np.mean(np.abs(node_pol), axis=1, dtype=np.float32) if t_count else np.zeros((0,), dtype=np.float32)
+        np.nanmean(np.abs(node_pol), axis=1, dtype=np.float32) if t_count else np.zeros((0,), dtype=np.float32)
     )
     rank_sym_topj = np.argsort(score_sym_topj)[::-1].astype(np.int32) if t_count else np.zeros((0,), dtype=np.int32)
     rank_pol_abs_topj = (
@@ -2192,6 +2212,8 @@ def load_endpoint_framewise_payload(
             "global_pol": _slice("global_edge_pol_framewise"),
             "selected_edge_indices": np.asarray(payload.get("selected_edge_indices", np.zeros((0,), dtype=np.int32)), dtype=np.int32).tolist(),
         }
+    if "missing_mask" in payload:
+        out["missing_mask"] = _slice("missing_mask")
     if include_ranks:
         out["ranking"] = {
             "default_top_j": int(np.asarray(payload.get("ranking_default_top_j", np.asarray([default_top_j], dtype=np.int32))).ravel()[0]),
@@ -2407,7 +2429,7 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
         raise ValueError(
             f"Sample labels do not match model size for {sample_id}: got N={labels.shape[1]}, expected {n_residues}"
         )
-    if np.min(labels) < 0:
+    if np.any((labels < 0) & (labels != MISSING_LABEL)):
         raise ValueError(
             f"Sample contains negative labels for {sample_id}. "
             "Use md_label_mode='assigned' or remap unassigned labels before analysis."
@@ -2427,8 +2449,9 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
     q_residue_row = np.zeros((n_residues,), dtype=np.float32)
     for ridx in range(n_residues):
         ki = int(k_list[ridx])
-        counts = np.bincount(np.asarray(labels[:, ridx], dtype=int), minlength=ki).astype(np.float32, copy=False)
-        p = counts / float(n_frames) if n_frames > 0 else np.zeros((ki,), dtype=np.float32)
+        values = labels[:, ridx]
+        counts = np.bincount(values[values >= 0], minlength=ki).astype(np.float32, copy=False)
+        p = counts / counts.sum() if counts.sum() else np.full(ki, np.nan, dtype=np.float32)
         p_node_row[ridx, :ki] = p
         mask = (np.asarray(dh_list[ridx], dtype=float) < 0).astype(np.float32, copy=False)
         q_residue_row[ridx] = float(np.sum(p * mask)) if p.size else np.nan
@@ -2436,8 +2459,9 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
     q_edge_row = np.zeros((len(selected_edges),), dtype=np.float32)
     for col, edge in enumerate(selected_edges):
         r, s = edge
-        vals = dJ[edge][labels[:, r], labels[:, s]]
-        q_edge_row[col] = float(np.mean(vals < 0)) if vals.size else np.nan
+        keep = (labels[:, r] >= 0) & (labels[:, s] >= 0)
+        vals = dJ[edge][labels[keep, r], labels[keep, s]]
+        q_edge_row[col] = float(np.nanmean(vals < 0)) if vals.size else np.nan
 
     # Global endpoint separation per frame: ΔE = E_model_A - E_model_B.
     delta_energy = np.asarray(model_a.energy_batch(labels) - model_b.energy_batch(labels), dtype=np.float32)
@@ -2452,8 +2476,8 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
     node_b_z = (raw_node_b - float(node_center_b)) / float(node_scale_b)
     node_sym = 0.5 * (node_a_z + node_b_z)
     node_pol = node_a_z - node_b_z
-    global_node_sym_series = np.mean(node_sym, axis=1, dtype=np.float32)
-    global_node_pol_series = np.mean(node_pol, axis=1, dtype=np.float32)
+    global_node_sym_series = np.nanmean(node_sym, axis=1, dtype=np.float32)
+    global_node_pol_series = np.nanmean(node_pol, axis=1, dtype=np.float32)
 
     edge_a = _compute_selected_edge_energies(labels, model_a, selected_edges)
     edge_b = _compute_selected_edge_energies(labels, model_b, selected_edges)
@@ -2466,23 +2490,23 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
     edge_sym = 0.5 * (edge_a_z + edge_b_z)
     edge_pol = edge_a_z - edge_b_z
     global_edge_sym_series = (
-        np.mean(edge_sym, axis=1, dtype=np.float32) if selected_edges else np.zeros((n_frames,), dtype=np.float32)
+        np.nanmean(edge_sym, axis=1, dtype=np.float32) if selected_edges else np.zeros((n_frames,), dtype=np.float32)
     )
     global_edge_pol_series = (
-        np.mean(edge_pol, axis=1, dtype=np.float32) if selected_edges else np.zeros((n_frames,), dtype=np.float32)
+        np.nanmean(edge_pol, axis=1, dtype=np.float32) if selected_edges else np.zeros((n_frames,), dtype=np.float32)
     )
 
     if selected_edges:
-        edge_sym_mean = np.mean(edge_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False)
-        edge_sym_std = np.std(edge_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False)
-        edge_sym_median = np.median(edge_sym, axis=0).astype(np.float32, copy=False)
-        edge_pol_mean = np.mean(edge_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False)
-        edge_pol_std = np.std(edge_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False)
-        edge_pol_median = np.median(edge_pol, axis=0).astype(np.float32, copy=False)
-        global_edge_sym_mean = float(np.mean(global_edge_sym_series)) if global_edge_sym_series.size else np.nan
-        global_edge_sym_std = float(np.std(global_edge_sym_series)) if global_edge_sym_series.size else np.nan
-        global_edge_pol_mean = float(np.mean(global_edge_pol_series)) if global_edge_pol_series.size else np.nan
-        global_edge_pol_std = float(np.std(global_edge_pol_series)) if global_edge_pol_series.size else np.nan
+        edge_sym_mean = np.nanmean(edge_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False)
+        edge_sym_std = np.nanstd(edge_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False)
+        edge_sym_median = np.nanmedian(edge_sym, axis=0).astype(np.float32, copy=False)
+        edge_pol_mean = np.nanmean(edge_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False)
+        edge_pol_std = np.nanstd(edge_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False)
+        edge_pol_median = np.nanmedian(edge_pol, axis=0).astype(np.float32, copy=False)
+        global_edge_sym_mean = float(np.nanmean(global_edge_sym_series)) if global_edge_sym_series.size else np.nan
+        global_edge_sym_std = float(np.nanstd(global_edge_sym_series)) if global_edge_sym_series.size else np.nan
+        global_edge_pol_mean = float(np.nanmean(global_edge_pol_series)) if global_edge_pol_series.size else np.nan
+        global_edge_pol_std = float(np.nanstd(global_edge_pol_series)) if global_edge_pol_series.size else np.nan
     else:
         edge_sym_mean = np.zeros((0,), dtype=np.float32)
         edge_sym_std = np.zeros((0,), dtype=np.float32)
@@ -2496,6 +2520,7 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
         global_edge_pol_std = 0.0
 
     framewise = {
+        **energy_coverage(labels, selected_edges),
         "frustration_node_sym_framewise": np.asarray(node_sym, dtype=np.float32),
         "frustration_node_pol_framewise": np.asarray(node_pol, dtype=np.float32),
         "frustration_edge_sym_framewise": np.asarray(edge_sym, dtype=np.float32),
@@ -2521,12 +2546,12 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
         "q_residue_all": np.asarray(q_residue_row, dtype=np.float32),
         "q_edge": np.asarray(q_edge_row, dtype=np.float32),
         "delta_energy": np.asarray(delta_energy, dtype=np.float32),
-        "frustration_node_sym_mean": np.mean(node_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False),
-        "frustration_node_sym_std": np.std(node_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False),
-        "frustration_node_sym_median": np.median(node_sym, axis=0).astype(np.float32, copy=False),
-        "frustration_node_pol_mean": np.mean(node_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False),
-        "frustration_node_pol_std": np.std(node_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False),
-        "frustration_node_pol_median": np.median(node_pol, axis=0).astype(np.float32, copy=False),
+        "frustration_node_sym_mean": np.nanmean(node_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False),
+        "frustration_node_sym_std": np.nanstd(node_sym, axis=0, dtype=np.float32).astype(np.float32, copy=False),
+        "frustration_node_sym_median": np.nanmedian(node_sym, axis=0).astype(np.float32, copy=False),
+        "frustration_node_pol_mean": np.nanmean(node_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False),
+        "frustration_node_pol_std": np.nanstd(node_pol, axis=0, dtype=np.float32).astype(np.float32, copy=False),
+        "frustration_node_pol_median": np.nanmedian(node_pol, axis=0).astype(np.float32, copy=False),
         "frustration_edge_sym_mean": np.asarray(edge_sym_mean, dtype=np.float32),
         "frustration_edge_sym_std": np.asarray(edge_sym_std, dtype=np.float32),
         "frustration_edge_sym_median": np.asarray(edge_sym_median, dtype=np.float32),
@@ -2541,10 +2566,10 @@ def _endpoint_frustration_sample_worker(payload: dict[str, Any]) -> dict[str, An
         "edge_norm_scale_a": float(edge_scale_a),
         "edge_norm_center_b": float(edge_center_b),
         "edge_norm_scale_b": float(edge_scale_b),
-        "global_node_sym_mean": float(np.mean(global_node_sym_series)) if global_node_sym_series.size else np.nan,
-        "global_node_sym_std": float(np.std(global_node_sym_series)) if global_node_sym_series.size else np.nan,
-        "global_node_pol_mean": float(np.mean(global_node_pol_series)) if global_node_pol_series.size else np.nan,
-        "global_node_pol_std": float(np.std(global_node_pol_series)) if global_node_pol_series.size else np.nan,
+        "global_node_sym_mean": float(np.nanmean(global_node_sym_series)) if global_node_sym_series.size else np.nan,
+        "global_node_sym_std": float(np.nanstd(global_node_sym_series)) if global_node_sym_series.size else np.nan,
+        "global_node_pol_mean": float(np.nanmean(global_node_pol_series)) if global_node_pol_series.size else np.nan,
+        "global_node_pol_std": float(np.nanstd(global_node_pol_series)) if global_node_pol_series.size else np.nan,
         "global_edge_sym_mean": global_edge_sym_mean,
         "global_edge_sym_std": global_edge_sym_std,
         "global_edge_pol_mean": global_edge_pol_mean,
@@ -2988,10 +3013,12 @@ def _compute_delta_energy_components(
     X = np.asarray(labels, dtype=np.int64)
     if X.ndim != 2:
         raise ValueError("labels must be 2D.")
+    observed_labels(X, model_b.K_list())
+    X, observed = observed_labels(X, model_a.K_list())
     n_frames, n_residues = X.shape
     node = np.zeros((n_frames, n_residues), dtype=np.float32)
     for r in range(n_residues):
-        node[:, r] = np.asarray(model_a.h[r][X[:, r]] - model_b.h[r][X[:, r]], dtype=np.float32)
+        node[:, r] = np.where(observed[:, r], model_a.h[r][X[:, r]] - model_b.h[r][X[:, r]], 0.0)
 
     edge_set = {
         tuple(sorted((int(r), int(s))))
@@ -3007,7 +3034,7 @@ def _compute_delta_energy_components(
             vals += np.asarray(model_a.J[(r, s)][X[:, r], X[:, s]], dtype=np.float32)
         if (r, s) in model_b.J:
             vals -= np.asarray(model_b.J[(r, s)][X[:, r], X[:, s]], dtype=np.float32)
-        edge[:, col] = vals
+        edge[:, col] = np.where(observed[:, r] & observed[:, s], vals, 0.0)
     return node, edge, edges
 
 
@@ -3040,7 +3067,7 @@ def _delta_energy_sample_worker(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             f"Sample labels do not match model size for {sample_id}: got N={labels.shape[1]}, expected {n_residues}"
         )
-    if np.min(labels) < 0:
+    if np.any((labels < 0) & (labels != MISSING_LABEL)):
         raise ValueError(f"Sample contains negative labels for {sample_id}; use assigned labels or drop invalid frames.")
 
     available_frames = int(labels.shape[0])
@@ -3054,6 +3081,7 @@ def _delta_energy_sample_worker(payload: dict[str, Any]) -> dict[str, Any]:
     node_delta, edge_delta, edge_index = _compute_delta_energy_components(labels, model_a, model_b)
     delta_energy = np.asarray(node_delta.sum(axis=1) + edge_delta.sum(axis=1), dtype=np.float32)
     return {
+        **energy_coverage(labels, edge_index),
         "sample_id": sample_id,
         "sample_label": sample_label,
         "sample_type": sample_type,
@@ -3306,6 +3334,9 @@ def upsert_delta_energy_analysis(
         component_path = component_dir / f"{sid}.npz"
         np.savez_compressed(
             component_path,
+            missing_mask=row["missing_mask"],
+            node_observed_mask=row["node_observed_mask"],
+            edge_observed_mask=row["edge_observed_mask"],
             sample_id=np.asarray([sid], dtype=str),
             selected_frame_indices=np.asarray(row.get("selected_frame_indices", np.zeros((0,), dtype=np.int32)), dtype=np.int32),
             source_frame_indices=np.asarray(row.get("source_frame_indices", np.zeros((0,), dtype=np.int64)), dtype=np.int64),
@@ -3404,6 +3435,10 @@ def upsert_delta_energy_analysis(
         "sample_ids": resolved_requested,
         "frame_limits": {sid: int(resolved_frame_limits.get(sid, 0)) for sid in resolved_requested},
         "component_sample_paths": {sid: component_paths[i] for i, sid in enumerate(resolved_requested) if i < len(component_paths)},
+        "missing_energy_policy": "zero missing nodes and incident edges (partial Hamiltonian, not marginalization)",
+        "sample_missing_residue_indices": {row["sample_id"]: np.flatnonzero(np.any(row["missing_mask"], axis=0)).tolist() for row in out_rows},
+        "sample_observed_node_count_ranges": {row["sample_id"]: [int(np.min(row["observed_node_counts"])), int(np.max(row["observed_node_counts"]))] for row in out_rows},
+        "sample_observed_edge_count_ranges": {row["sample_id"]: [int(np.min(row["observed_edge_counts"])), int(np.max(row["observed_edge_counts"]))] for row in out_rows},
         "paths": {"analysis_npz": str(npz_path.relative_to(system_dir))},
         "summary": {
             "n_requested_refs": int(len(requested)),
@@ -3546,10 +3581,10 @@ def upsert_delta_commitment_analysis(
     for idx, (r, s) in enumerate(edges):
         D_edge[idx] = float(np.linalg.norm(np.asarray(dJ[(r, s)], dtype=float).ravel(), ord=2))
 
-    top_k_r = min(top_k_residues, N)
-    top_k_e = min(top_k_edges, len(edges))
-    top_residue_indices = np.argsort(D_residue)[::-1][:top_k_r].astype(int)
-    top_edge_indices = np.argsort(D_edge)[::-1][:top_k_e].astype(int) if top_k_e > 0 else np.zeros((0,), dtype=int)
+    top_k_r = min(top_k_residues, int(np.isfinite(D_residue).sum()))
+    top_k_e = min(top_k_edges, int(np.isfinite(D_edge).sum()))
+    top_residue_indices = np.argsort(np.where(np.isfinite(D_residue), D_residue, -np.inf))[::-1][:top_k_r].astype(int)
+    top_edge_indices = np.argsort(np.where(np.isfinite(D_edge), D_edge, -np.inf))[::-1][:top_k_e].astype(int) if top_k_e > 0 else np.zeros((0,), dtype=int)
 
     # Locate analysis directory for this (A,B,params) key.
     key = json.dumps(
@@ -3650,7 +3685,7 @@ def upsert_delta_commitment_analysis(
             raise ValueError(f"Sample labels do not match model size for {sid}: got N={X.shape[1]}, expected {N}")
         # Validate label range per residue (variable K_i supported).
         # Note: this analysis assumes assigned labels are in [0, K_i-1].
-        if np.min(X) < 0:
+        if np.any((X < 0) & (X != MISSING_LABEL)):
             raise ValueError(
                 f"Sample contains negative labels for {sid}. "
                 "Use md_label_mode='assigned' or remap unassigned labels before analysis."
@@ -3671,11 +3706,9 @@ def upsert_delta_commitment_analysis(
         # We compute from marginals so that downstream visualizations can reuse p_i(a).
         for i in range(N):
             Ki = int(K_list[i])
-            counts = np.bincount(np.asarray(X[:, i], dtype=int), minlength=Ki).astype(np.float32, copy=False)
-            if n_frames > 0:
-                p = counts / float(n_frames)
-            else:
-                p = np.zeros((Ki,), dtype=np.float32)
+            values = X[:, i]
+            counts = np.bincount(values[values >= 0], minlength=Ki).astype(np.float32, copy=False)
+            p = counts / counts.sum() if counts.sum() else np.full(Ki, np.nan, dtype=np.float32)
             p_node[row, i, :Ki] = p
             mask = (np.asarray(dh_list[i], dtype=float) < 0).astype(np.float32, copy=False)
             q_residue_all[row, i] = float(np.sum(p * mask)) if p.size else np.nan
@@ -3684,7 +3717,8 @@ def upsert_delta_commitment_analysis(
         if top_k_e > 0 and edges:
             for col, eidx in enumerate(top_edge_indices.tolist()):
                 r, s = edges[int(eidx)]
-                vals = dJ[(r, s)][X[:, r], X[:, s]]
+                keep = (X[:, r] >= 0) & (X[:, s] >= 0)
+                vals = dJ[(r, s)][X[keep, r], X[keep, s]]
                 q_edge[row, col] = float(np.mean(vals < 0)) if vals.size else np.nan
 
         de = np.asarray(diff_model.energy_batch(X), dtype=float)
@@ -4217,7 +4251,7 @@ def upsert_delta_js_analysis(
                 continue
             if int(X.shape[1]) != N:
                 raise ValueError(f"Reference sample size mismatch ({sid}): got N={X.shape[1]}, expected {N}")
-            if np.min(X) < 0:
+            if np.any((X < 0) & (X != MISSING_LABEL)):
                 raise ValueError(
                     f"Reference sample contains negative labels ({sid}). "
                     "Use md_label_mode='assigned' or remap unassigned labels first."
@@ -4235,15 +4269,19 @@ def upsert_delta_js_analysis(
             T = int(X.shape[0])
             total += T
             for i in range(N):
-                node_counts[i] += np.bincount(np.asarray(X[:, i], dtype=int), minlength=int(K_list[i])).astype(float)
+                values = X[:, i]
+                node_counts[i] += np.bincount(values[values >= 0], minlength=int(K_list[i])).astype(float)
             if edges:
                 P = pairwise_joints_on_edges(X, K_list, edges)
                 for eidx, e in enumerate(edges):
-                    edge_counts[eidx] += np.asarray(P[e], dtype=float) * float(T)
+                    r, s = e
+                    count = np.count_nonzero((X[:, r] >= 0) & (X[:, s] >= 0))
+                    if count:
+                        edge_counts[eidx] += np.asarray(P[e], dtype=float) * float(count)
         if total <= 0:
             raise ValueError("Reference samples are empty after filtering.")
-        p_node = [c / max(1.0, float(np.sum(c))) for c in node_counts]
-        p_edge = [c / max(1.0, float(np.sum(c))) for c in edge_counts]
+        p_node = [c / c.sum() if c.sum() else np.full_like(c, np.nan) for c in node_counts]
+        p_edge = [c / c.sum() if c.sum() else np.full_like(c, np.nan) for c in edge_counts]
         return p_node, p_edge
 
     p_node_a, p_edge_a = _aggregate_refs(ref_ids_a)
@@ -4256,10 +4294,10 @@ def upsert_delta_js_analysis(
     for eidx, _ in enumerate(edges):
         D_edge[eidx] = float(js_divergence(np.asarray(p_edge_a[eidx], dtype=float).ravel(), np.asarray(p_edge_b[eidx], dtype=float).ravel()))
 
-    top_k_r = min(top_k_residues, N)
-    top_k_e = min(top_k_edges, len(edges))
-    top_residue_indices = np.argsort(D_residue)[::-1][:top_k_r].astype(int)
-    top_edge_indices = np.argsort(D_edge)[::-1][:top_k_e].astype(int) if top_k_e > 0 else np.zeros((0,), dtype=int)
+    top_k_r = min(top_k_residues, int(np.isfinite(D_residue).sum()))
+    top_k_e = min(top_k_edges, int(np.isfinite(D_edge).sum()))
+    top_residue_indices = np.argsort(np.where(np.isfinite(D_residue), D_residue, -np.inf))[::-1][:top_k_r].astype(int)
+    top_edge_indices = np.argsort(np.where(np.isfinite(D_edge), D_edge, -np.inf))[::-1][:top_k_e].astype(int) if top_k_e > 0 else np.zeros((0,), dtype=int)
     top_edges = [edges[int(eidx)] for eidx in top_edge_indices.tolist()]
 
     def _weighted_mean(vals: np.ndarray, weights: np.ndarray) -> float:
@@ -4295,7 +4333,7 @@ def upsert_delta_js_analysis(
             raise ValueError(f"Sample labels are empty: {sid}")
         if int(X.shape[1]) != N:
             raise ValueError(f"Sample labels do not match model size for {sid}: got N={X.shape[1]}, expected {N}")
-        if np.min(X) < 0:
+        if np.any((X < 0) & (X != MISSING_LABEL)):
             raise ValueError(
                 f"Sample contains negative labels for {sid}. "
                 "Use md_label_mode='assigned' or remap unassigned labels before analysis."

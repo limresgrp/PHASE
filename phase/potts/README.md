@@ -123,7 +123,7 @@ python main.py \
 PLM details:
 
 * PHASE fits a single symmetric sparse-edge Potts model directly by pseudolikelihood.
-* PLM uses AdamW with `betas=(0.9, 0.999)`, `eps=1e-8`, and decoupled `weight_decay=1e-2`. The default learning rate is `1e-3`, with cosine decay to `1e-5`.
+* PLM uses AdamW with `betas=(0.9, 0.999)`, `eps=1e-8`, and decoupled `weight_decay=1e-2`. The default learning rate is `1e-2`, with cosine decay to `1e-4`.
 * When zero-sum gauge is enabled, training uses differentiable projected views in the forward pass and export path.
 * Saved models are exported in zero-sum gauge; the optimizer-owned tensors are not mutated in place after each step.
 * Effective PLM batch size is `plm_batch_size * plm_grad_accum_steps`.

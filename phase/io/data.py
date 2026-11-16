@@ -5,6 +5,7 @@ import json
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, Any
 
 import numpy as np
+from phase.potts.masking import MISSING_LABEL
 
 
 UnassignedPolicy = Literal["drop_frames", "treat_as_state", "error"]
@@ -123,6 +124,8 @@ def sanitize_dataset(
     T, N = labels.shape
 
     has_unassigned = np.any(labels < 0)
+    if np.any(labels == MISSING_LABEL) and unassigned_policy == "treat_as_state":
+        raise ValueError("Missing coordinates (-2) cannot be treated as a cluster state. Use complete training frames; partial states support masked evaluation.")
     if has_unassigned:
         if unassigned_policy == "error":
             bad = np.where(labels < 0)

@@ -79,6 +79,12 @@ Interpretation:
 
 The web page shows these values on the `Delta energy distributions` tab. Histogram bars are kept neutral gray; the fitted/smoothed distribution curves carry the sample colors. A display toggle can show either histograms plus fitted curves or fitted curves only. The trajectory selector also controls each curve's color and line style and can add a vertical marker at the fitted-curve maximum. Peak-marker dash and height are configurable; a blank height uses 110% of the tallest displayed curve. When launching this analysis, each selected trajectory can use all frames or a random subset with a per-trajectory frame limit.
 
+A single analyzed frame is drawn as a vertical line at its exact delta energy,
+not a histogram or fitted density. Its height matches the tallest displayed
+distribution (including histogram bars when enabled), so it does not inflate
+the density axis. It retains the sample color, line style, legend and hover info.
+When only single-frame states are selected, lines use a fallback height of 1.
+
 ## Saved outputs
 
 Main analysis file:

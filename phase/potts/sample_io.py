@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
+from phase.potts.masking import MISSING_LABEL
 
 
 SAMPLE_NPZ_FILENAME = "sample.npz"
@@ -35,6 +36,8 @@ class SampleNPZ:
       - labels_halo: (T, N) int32 (MD-only; "halo" label mode)
       - frame_indices: (T,) int64 (MD-only; original trajectory frame indices)
       - frame_state_ids: (T,) str (MD-only; original state id per frame, when mixing sources)
+      - missing_mask: (T,N) bool, exactly labels == -2 (absent coordinates,
+        distinct from halo -1 and invalid SA frames)
 
     SA artifacts can additionally contain audit arrays written through ``extra``:
       - sa_initial_labels: (T, N) exact labels supplied to each annealing read
@@ -48,6 +51,7 @@ class SampleNPZ:
     labels_halo: Optional[np.ndarray] = None
     frame_indices: Optional[np.ndarray] = None
     frame_state_ids: Optional[np.ndarray] = None
+    missing_mask: Optional[np.ndarray] = None
 
 
 def save_sample_npz(
@@ -59,12 +63,20 @@ def save_sample_npz(
     labels_halo: np.ndarray | None = None,
     frame_indices: np.ndarray | None = None,
     frame_state_ids: np.ndarray | None = None,
+    missing_mask: np.ndarray | None = None,
     extra: Dict[str, Any] | None = None,
 ) -> Path:
     path = Path(path)
     payload: Dict[str, Any] = {
         "labels": np.asarray(labels, dtype=np.int32),
     }
+    inferred_missing = np.asarray(labels) == MISSING_LABEL
+    if missing_mask is not None and not np.array_equal(np.asarray(missing_mask, dtype=bool), inferred_missing):
+        raise ValueError("missing_mask must match labels == -2, separately from unassigned/halo labels.")
+    if missing_mask is not None or np.any(inferred_missing):
+        payload["missing_mask"] = inferred_missing
+    if labels_halo is not None and not np.array_equal(np.asarray(labels_halo) == MISSING_LABEL, inferred_missing):
+        raise ValueError("Assigned and halo labels must agree on missing coordinates (-2).")
     if invalid_mask is not None:
         payload["invalid_mask"] = np.asarray(invalid_mask, dtype=bool)
     if valid_counts is not None:
@@ -113,6 +125,11 @@ def load_sample_npz(path: str | Path) -> SampleNPZ:
                     frame_state_ids = None
         invalid_mask = np.asarray(data["invalid_mask"], dtype=bool) if "invalid_mask" in data else None
         valid_counts = np.asarray(data["valid_counts"], dtype=np.int32) if "valid_counts" in data else None
+        missing_mask = np.asarray(data["missing_mask"], dtype=bool) if "missing_mask" in data else labels == MISSING_LABEL
+        if not np.array_equal(missing_mask, labels == MISSING_LABEL):
+            raise ValueError("Sample missing_mask does not match missing cluster labels (-2).")
+        if labels_halo is not None and not np.array_equal(labels_halo == MISSING_LABEL, missing_mask):
+            raise ValueError("Assigned and halo labels disagree on missing coordinates (-2).")
     return SampleNPZ(
         labels=labels,
         invalid_mask=invalid_mask,
@@ -120,6 +137,7 @@ def load_sample_npz(path: str | Path) -> SampleNPZ:
         labels_halo=labels_halo,
         frame_indices=frame_indices,
         frame_state_ids=frame_state_ids,
+        missing_mask=missing_mask,
     )
 
 

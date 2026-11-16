@@ -1017,7 +1017,7 @@ export default function SamplingVizPage() {
             series.push({
               id: `${group.modelId}:${meta.sample_id}`,
               sample_id: meta.sample_id,
-              label: sample?.name || meta.sample_name || meta.sample_id,
+              label: `${sample?.name || meta.sample_name || meta.sample_id}${meta.summary?.missing_residue_indices?.length ? ` [partial: ${meta.summary.missing_residue_indices.length} missing]` : ''}`,
               kind: sampleType || 'sample',
               type: sampleType || 'sample',
               values: energies,

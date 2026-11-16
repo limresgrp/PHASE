@@ -786,6 +786,7 @@ async def submit_md_samples_refresh_job(
         raise HTTPException(status_code=400, detail=f"State(s) missing descriptors: {', '.join(invalid)}")
 
     params = payload.dict(exclude_none=True, exclude={"project_id", "system_id", "cluster_id"})
+    params["workers"] = 1
     if state_ids:
         params["state_ids"] = state_ids
     dataset_ref = {

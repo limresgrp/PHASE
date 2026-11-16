@@ -120,6 +120,8 @@ def _build_sa_initial_labels(
 ) -> tuple[np.ndarray, np.ndarray]:
     mode = (mode or "md").lower()
     if mode in {"md", "md-frame"}:
+        if md_labels is not None and np.any(np.asarray(md_labels) < 0):
+            raise ValueError("MD warm starts require complete assigned frames; missing coordinates cannot initialize a sampled cluster state. Choose a complete MD trajectory or random initialization.")
         if md_labels is None or md_labels.size == 0:
             if mode == "md-frame":
                 raise ValueError("SA init set to md-frame, but MD labels are unavailable.")
