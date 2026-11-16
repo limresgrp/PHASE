@@ -10,6 +10,7 @@ import SimulationComparePage from './pages/SimulationComparePage';
 import DescriptorVizPage from './pages/DescriptorVizPage';
 import MetastableVizPage from './pages/MetastableVizPage';
 import SamplingVizPage from './pages/SamplingVizPage';
+import ModelPairHotspotsPage from './pages/ModelPairHotspotsPage';
 import DeltaEvalPage from './pages/DeltaEvalPage';
 import ResidueSelectionPage from './pages/ResidueSelectionPage';
 import DeltaCommitment3DPage from './pages/DeltaCommitment3DPage';
@@ -56,6 +57,7 @@ export default function App() {
             path="/projects/:projectId/systems/:systemId/sampling/visualize"
             element={<SamplingVizPage />}
           />
+          <Route path="/projects/:projectId/systems/:systemId/sampling/model_pair_hotspots" element={<ModelPairHotspotsPage />} />
           <Route
             path="/projects/:projectId/systems/:systemId/sampling/delta_eval"
             element={<DeltaEvalPage />}

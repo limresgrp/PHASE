@@ -267,6 +267,7 @@ cluster_menu() {
     echo "Cluster: ${OFFLINE_CLUSTER_NAME:-$OFFLINE_CLUSTER_ID} (${OFFLINE_CLUSTER_ID})"
     echo ""
     ACTION_LINES=$'list-models|List Potts models\nlist-samples|List sampling runs\nfit|Fit Potts model\nfit-delta|Fit delta Potts model\nlambda-model|Create lambda model\nsample|Run sampling\nsampling-analysis|Sampling Explorer analysis\nendpoint-frustration|Endpoint commitment/frustration analysis\ndelta-energy|Delta energy distribution analysis\nhamiltonian-spectral|Hamiltonian spectral analysis\nspectral-intersection|Spectral set-intersection analysis\npiston-ligand|Piston ligand projection analysis\ntransient-states|Transient-state analysis\nlambda-sweep|Lambda sweep sampling\ngibbs-relax|Gibbs relaxation analysis\nligand-completion|Ligand completion analysis\ndelta-js|Delta JS analysis\npotts-nn|Potts NN mapping analysis\nbackmapping-dataset|Build backmapping dataset\npatch-cluster|Patch cluster residues\nassign-md|Assign macro states to cluster (md_eval)\nback|Back to systems'
+    ACTION_LINES+=$'\nmodel-pair-hotspots|Model-pair discriminative hotspots'
     ACTION_LINES+=$'\nrmsd-ordering|RMSD endpoint ordering analysis'
     ACTION_LINES+=$'\ndistance-cache|Build/inspect CA distance cache'
     ACTION_ROW="$(offline_choose_one "Cluster actions:" "$ACTION_LINES")"
@@ -330,6 +331,12 @@ cluster_menu() {
           --project-id "$OFFLINE_PROJECT_ID" \
           --system-id "$OFFLINE_SYSTEM_ID" \
           --cluster-id "$OFFLINE_CLUSTER_ID"
+        pause
+        ;;
+      model-pair-hotspots)
+        ensure_env || return 0
+        "${ROOT_DIR}/scripts/potts_model_pair_hotspots.sh" --root "$OFFLINE_ROOT" \
+          --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID" --cluster-id "$OFFLINE_CLUSTER_ID"
         pause
         ;;
       endpoint-frustration)

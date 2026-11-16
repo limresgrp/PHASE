@@ -397,6 +397,15 @@ The script prompts for the input Cluster NPZ, PLM hyperparameters, and device
 (`auto`, `cuda`, or `cpu`). The fitted model is saved as `potts_model.npz` in the
 chosen results directory.
 
+## Model-pair Hotspots
+
+Use **Model-pair analysis -> Discriminative hotspots** on the webserver, or
+**Model-pair discriminative hotspots** in the console cluster menu, to rank
+endpoint-discriminating residues and interactions and inspect their filtered 3D network.
+The independent analysis supports parameter contrasts, MD reference ensemble effects,
+and block-bootstrap uncertainty. See [inputs, scores and interpretation](docs/model_pair_hotspots.md).
+These scores prioritize candidates; they do not establish causal mutational effects.
+
 ## Notes
 
 - The backend uses Redis to queue jobs. In Docker, Redis is started automatically.

@@ -36,7 +36,7 @@ function activeDestination(pathname, basePath) {
   if (pathname.startsWith(`${basePath}/residue_selections`)) return 'structures';
   if (pathname.startsWith(`${basePath}/potts`)) return 'potts';
   if (pathname.startsWith(`${basePath}/sampling/visualize`)) return 'sampling';
-  if (pathname.startsWith(`${basePath}/sampling/delta_eval`) || pathname.startsWith(`${basePath}/sampling/delta_commitment_3d`)) return 'model_pair';
+  if (pathname.startsWith(`${basePath}/sampling/model_pair_hotspots`) || pathname.startsWith(`${basePath}/sampling/delta_eval`) || pathname.startsWith(`${basePath}/sampling/delta_commitment_3d`)) return 'model_pair';
   if (pathname.startsWith(`${basePath}/sampling/delta_js`)) return 'delta_js';
   if (pathname.startsWith(`${basePath}/sampling/distance`)) return 'distance';
   if (pathname.startsWith(`${basePath}/sampling/potts_nn_mapping`)) return 'nearest';

@@ -1365,6 +1365,7 @@ export default function DeltaEvalPage() {
 
         <section className="space-y-4">
           <div className="flex flex-wrap gap-2 rounded-lg border border-gray-700 bg-gray-800 p-2">
+            <button className="rounded-md bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:bg-gray-700" onClick={() => navigate(`/projects/${encodeURIComponent(projectId)}/systems/${encodeURIComponent(systemId)}/sampling/model_pair_hotspots${buildSamplingSuffix(selectedClusterId)}`)}>Discriminative hotspots</button>
             {[
               ['delta_energy', 'Delta energy distributions'],
               ['commitment', 'Commitment'],

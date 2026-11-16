@@ -93,6 +93,13 @@ def _extract_sample_refs(meta: dict[str, Any]) -> tuple[set[str], set[str], set[
         direct.update(values)
         essential.update(values)
 
+    if meta.get("analysis_type") == "model_pair_hotspots":
+        # Every displayed preference ensemble is part of this compact artifact.
+        # Remove it on deletion rather than leave stale table/structure choices.
+        values = _coerce_str_list(meta.get("sample_ids"))
+        direct.update(values)
+        essential.update(values)
+
     summary = meta.get("summary") if isinstance(meta.get("summary"), dict) else {}
     optional_many.update(_coerce_str_list(summary.get("sample_ids")))
 
