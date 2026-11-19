@@ -3008,17 +3008,25 @@ def _compute_delta_energy_components(
     labels: np.ndarray,
     model_a: PottsModel,
     model_b: PottsModel,
+    *,
+    dtype=np.float32,
+    mask_missing: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return per-frame node and edge contributions for E_A - E_B."""
+    """Return E_A - E_B terms; preserve legacy precision/masking by default.
+
+    Benchmarks opt into float64 and NaN observations for support-aware algebra
+    and statistics, rather than treating absent coordinates as observed zeros.
+    """
     X = np.asarray(labels, dtype=np.int64)
     if X.ndim != 2:
         raise ValueError("labels must be 2D.")
     observed_labels(X, model_b.K_list())
     X, observed = observed_labels(X, model_a.K_list())
     n_frames, n_residues = X.shape
-    node = np.zeros((n_frames, n_residues), dtype=np.float32)
+    missing = np.nan if mask_missing else 0.0
+    node = np.zeros((n_frames, n_residues), dtype=dtype)
     for r in range(n_residues):
-        node[:, r] = np.where(observed[:, r], model_a.h[r][X[:, r]] - model_b.h[r][X[:, r]], 0.0)
+        node[:, r] = np.where(observed[:, r], model_a.h[r][X[:, r]] - model_b.h[r][X[:, r]], missing)
 
     edge_set = {
         tuple(sorted((int(r), int(s))))
@@ -3026,15 +3034,15 @@ def _compute_delta_energy_components(
         if int(r) != int(s)
     }
     edges = np.asarray(sorted(edge_set), dtype=np.int32)
-    edge = np.zeros((n_frames, int(edges.shape[0])), dtype=np.float32)
+    edge = np.zeros((n_frames, int(edges.shape[0])), dtype=dtype)
     for col, (r_raw, s_raw) in enumerate(edges.tolist()):
         r, s = int(r_raw), int(s_raw)
-        vals = np.zeros((n_frames,), dtype=np.float32)
+        vals = np.zeros((n_frames,), dtype=dtype)
         if (r, s) in model_a.J:
-            vals += np.asarray(model_a.J[(r, s)][X[:, r], X[:, s]], dtype=np.float32)
+            vals += np.asarray(model_a.J[(r, s)][X[:, r], X[:, s]], dtype=dtype)
         if (r, s) in model_b.J:
-            vals -= np.asarray(model_b.J[(r, s)][X[:, r], X[:, s]], dtype=np.float32)
-        edge[:, col] = np.where(observed[:, r] & observed[:, s], vals, 0.0)
+            vals -= np.asarray(model_b.J[(r, s)][X[:, r], X[:, s]], dtype=dtype)
+        edge[:, col] = np.where(observed[:, r] & observed[:, s], vals, missing)
     return node, edge, edges
 
 

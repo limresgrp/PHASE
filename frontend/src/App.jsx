@@ -10,6 +10,7 @@ import SimulationComparePage from './pages/SimulationComparePage';
 import DescriptorVizPage from './pages/DescriptorVizPage';
 import MetastableVizPage from './pages/MetastableVizPage';
 import SamplingVizPage from './pages/SamplingVizPage';
+import ExperimentalBenchmarkPage from './pages/ExperimentalBenchmarkPage';
 import ModelPairHotspotsPage from './pages/ModelPairHotspotsPage';
 import DeltaEvalPage from './pages/DeltaEvalPage';
 import ResidueSelectionPage from './pages/ResidueSelectionPage';
@@ -57,6 +58,8 @@ export default function App() {
             path="/projects/:projectId/systems/:systemId/sampling/visualize"
             element={<SamplingVizPage />}
           />
+          <Route path="/projects/:projectId/systems/:systemId/experimental_benchmarks" element={<ExperimentalBenchmarkPage />} />
+          <Route path="/projects/:projectId/systems/:systemId/experimental_benchmarks/:analysisId" element={<ExperimentalBenchmarkPage />} />
           <Route path="/projects/:projectId/systems/:systemId/sampling/model_pair_hotspots" element={<ModelPairHotspotsPage />} />
           <Route
             path="/projects/:projectId/systems/:systemId/sampling/delta_eval"

@@ -21,6 +21,7 @@ classifiers = [
 # Add core dependencies here
 dependencies = [
     "numpy",
+    "scipy", # Experimental structure benchmark statistics and distances
     "MDAnalysis",
     "biopython>=1.83", # Reference sequence alignment and coordinate residue identities
     "deeptime", # For VAMP analysis

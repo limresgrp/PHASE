@@ -2,6 +2,7 @@
 # These are also listed in pyproject.toml,
 # but this file is useful for CI/CD and Docker.
 numpy
+scipy
 biopython>=1.83
 MDAnalysis
 scikit-learn

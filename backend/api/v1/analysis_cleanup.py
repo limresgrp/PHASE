@@ -93,7 +93,7 @@ def _extract_sample_refs(meta: dict[str, Any]) -> tuple[set[str], set[str], set[
         direct.update(values)
         essential.update(values)
 
-    if meta.get("analysis_type") == "model_pair_hotspots":
+    if meta.get("analysis_type") in {"model_pair_hotspots", "experimental_structure_benchmark"}:
         # Every displayed preference ensemble is part of this compact artifact.
         # Remove it on deletion rather than leave stale table/structure choices.
         values = _coerce_str_list(meta.get("sample_ids"))
@@ -117,6 +117,9 @@ def _extract_model_refs(meta: dict[str, Any]) -> tuple[set[str], set[str]]:
         values = _coerce_str_list(meta.get(key))
         refs.update(values)
         essential.update(values)
+    if meta.get("analysis_type") == "experimental_structure_benchmark":
+        refs.update(_coerce_str_list(meta.get("model_ids")))
+        essential.update(_coerce_str_list(meta.get("model_ids")))
     return refs, essential
 
 
@@ -127,6 +130,8 @@ def _extract_state_refs(meta: Any) -> set[str]:
         if isinstance(node, dict):
             for key, value in node.items():
                 key_str = str(key)
+                if key_str in {"label_scheme_snapshot", "label_scheme"}:
+                    continue  # User analysis annotations are not scientific state references.
                 if key_str in _SINGLE_STATE_REF_KEYS or key_str in _MULTI_STATE_REF_KEYS:
                     refs.update(_coerce_str_list(value))
                     continue

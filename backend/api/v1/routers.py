@@ -11,6 +11,7 @@ from backend.api.v1.routes import (
     distances,
     jobs,
     hotspots,
+    experimental_benchmarks,
     metastable,
     projects,
     reference,
@@ -28,6 +29,7 @@ api_router.include_router(states.router)
 api_router.include_router(descriptors.router)
 api_router.include_router(distances.router)
 api_router.include_router(hotspots.router)
+api_router.include_router(experimental_benchmarks.router)
 api_router.include_router(metastable.router)
 api_router.include_router(clusters.router)
 api_router.include_router(analysis.router)

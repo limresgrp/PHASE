@@ -397,6 +397,16 @@ The script prompts for the input Cluster NPZ, PLM hyperparameters, and device
 (`auto`, `cuda`, or `cpu`). The fitted model is saved as `potts_model.npz` in the
 chosen results directory.
 
+## Experimental Structure Benchmark
+
+Open **Structure benchmark** in the system navigation, or choose **Experimental
+Structure Benchmark** from a console cluster menu. Compare static/PDB-only states
+across multiple model contrasts using separate user label schemes, masked and
+common-support scores, rank maps, label statistics, hotspots, local fingerprints,
+PCoA and coverage QC. Jobs are asynchronous and export immutable CSV/JSON/NPZ bundles.
+PHASE does not infer biological meaning from these comparisons.
+See [setup, mathematics, parameters and interpretation](docs/experimental_structure_benchmark.md).
+
 ## Model-pair Hotspots
 
 Use **Model-pair analysis -> Discriminative hotspots** on the webserver, or
