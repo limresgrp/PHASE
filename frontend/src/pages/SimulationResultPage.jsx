@@ -30,9 +30,9 @@ export default function SimulationResultPage() {
     load();
   }, [jobId]);
 
-  const systemRef = result?.system_reference || {};
+  const systemRef = result?.system_reference;
   const samplingUrl = useMemo(() => {
-    if (!systemRef.project_id || !systemRef.system_id || !systemRef.cluster_id) return null;
+    if (!systemRef?.project_id || !systemRef.system_id || !systemRef.cluster_id) return null;
     const params = new URLSearchParams({ cluster_id: systemRef.cluster_id });
     if (systemRef.sample_id) params.set('sample_id', systemRef.sample_id);
     return `/projects/${systemRef.project_id}/systems/${systemRef.system_id}/sampling/visualize?${params}`;
