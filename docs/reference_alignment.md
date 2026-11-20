@@ -36,6 +36,16 @@ the reference or its selection after any states or clusters exist is refused.
    **Preview alignment(s)**. Inspect identity, coverage, gaps and missing selected
    residues before confirming state creation. If chains tie, enter the desired
    target chain and preview again; `(blank)` explicitly chooses an unnamed chain.
+   Manual PDB uploads undergo the same sequence correspondence as PDB-ID imports;
+   they need not match the reference atom count, residue numbering or atom order.
+   If you choose a PDB in the optional trajectory field while using the reference,
+   the web UI switches to the aligned PDB upload workflow and requests a preview.
+   The shared ingestion service also aligns such self-contained PDB inputs when
+   no explicit uploaded or existing-state topology was chosen. Multi-model PDBs
+   use their own frames, without adding a reference frame.
+   Trajectories attached to an explicitly uploaded topology or an existing state
+   must still match that state's atoms; sequence alignment cannot reorder their
+   coordinate arrays. Reopening the creation dialog clears previous file inputs.
 5. For another trajectory using the same topology, choose **New replica of ...**.
    The topology is shared, but descriptors and trajectories belong to the new
    state. Deleting the source state does not delete a replica's topology.

@@ -7,6 +7,8 @@ import { requestJSON } from '../api/client';
 import { fetchSystem, fetchClusterAnalyses, fetchClusterAnalysisData, deleteClusterAnalysis, fetchClusterUiSetups } from '../api/projects';
 import { fetchJobStatus } from '../api/jobs';
 import { hotspotRows, hotspotColor } from '../utils/hotspotMetrics';
+import ModelPairBatchOptions from '../components/common/ModelPairBatchOptions';
+import { modelPairs, submitModelPairs, fetchPairJobStatus } from '../utils/modelPairs';
 
 const TYPE = 'model_pair_hotspots';
 const input = 'rounded border border-gray-700 bg-gray-900 px-2 py-1 text-sm';
@@ -42,6 +44,9 @@ export default function ModelPairHotspotsPage() {
   const [job, setJob] = useState(null);
   const [jobStatus, setJobStatus] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [batchEnabled, setBatchEnabled] = useState(false);
+  const [batchIds, setBatchIds] = useState([]);
+  const [modelReferences, setModelReferences] = useState({});
   const [revision, setRevision] = useState(0);
   const [form, setForm] = useState({ mode: 'ensemble', model_a_id: '', model_b_id: '', reference_a: [], reference_b: [], sample_ids: [], block_length: 50, bootstrap: 200, seed: 0 });
   const [tab, setTab] = useState('table');
@@ -70,11 +75,12 @@ export default function ModelPairHotspotsPage() {
   }, [projectId, systemId]);
 
   useEffect(() => {
-    setPayload(null); setAnalyses([]); setAnalysisId(''); setContext(emptyContext); setSelectionId(''); setJob(null); setJobStatus(null);
+    setPayload(null); setAnalyses([]); setAnalysisId(''); setContext(emptyContext); setSelectionId(''); setJob(null); setJobStatus(null); setBatchIds([]); setBatchEnabled(false); setModelReferences({});
     if (!clusterId) return undefined;
     let active = true;
     Promise.all([requestJSON(`${hotspotBase}/context`), fetchClusterUiSetups(projectId, systemId, clusterId, { setupType: 'residue_selection' })])
       .then(([choices, setups]) => { if (!active) return; setContext(choices); setSelections(setups.setups || []);
+        setModelReferences(Object.fromEntries(choices.models.map((m) => [m.model_id, m.suggested_references || []])));
         setForm((prev) => ({ ...prev, model_a_id: choices.models[0]?.model_id || '', model_b_id: choices.models[1]?.model_id || '',
           reference_a: choices.models[0]?.suggested_references || [], reference_b: choices.models[1]?.suggested_references || [], sample_ids: [] })); })
       .catch((e) => { if (active) setError(e.message); });
@@ -109,12 +115,13 @@ export default function ModelPairHotspotsPage() {
     let active = true, timer;
     const poll = async () => {
       try {
-        const status = await fetchJobStatus(job); if (!active) return;
+        const status = await fetchPairJobStatus(job, fetchJobStatus); if (!active) return;
         setJobStatus(status);
         if (status.status === 'finished') {
           setRevision((v) => v + 1); setAnalysisId(status.result?.results?.analysis_id || ''); setJob(null); return;
         }
         if (['failed', 'stopped', 'canceled'].includes(status.status)) {
+          setRevision((v) => v + 1);
           setError(status.meta?.error || status.result?.error || status.meta?.status || 'Analysis failed.'); setJob(null); return;
         }
       } catch (e) { if (active) setError(e.message); }
@@ -141,8 +148,13 @@ export default function ModelPairHotspotsPage() {
   const submit = async (event) => {
     event.preventDefault(); setError(''); setSubmitting(true);
     try {
-      const result = await requestJSON(`${hotspotBase}/analyses`, { method: 'POST', body: form });
-      setJob(result.job_id); setJobStatus(null); setModal(false);
+      const pairs = modelPairs(batchEnabled ? batchIds.filter((id) => context.models.some((m) => m.model_id === id)) : [form.model_a_id, form.model_b_id]);
+      const result = await submitModelPairs(pairs, (a, b) => requestJSON(`${hotspotBase}/analyses`, { method: 'POST', body: {
+        ...form, model_a_id: a, model_b_id: b,
+        ...(batchEnabled ? { reference_a: modelReferences[a] || [], reference_b: modelReferences[b] || [] } : {}),
+      } }));
+      if (result.jobs.length) { setJob(result.jobs); setJobStatus(null); setModal(false); }
+      if (result.errors.length) setError(`Some pairs could not be submitted: ${result.errors.join('; ')}`);
     } catch (e) { setError(e.message); } finally { setSubmitting(false); }
   };
   const remove = useCallback(async (analysis) => {
@@ -201,12 +213,16 @@ export default function ModelPairHotspotsPage() {
       {error && <p role="alert" className="text-red-400">{error}</p>}
       <p className="text-sm text-gray-400">Full or combined models only; not raw delta patches. Endpoint suggestions must be checked. Select independent held-out MD references where possible.</p>
       <label className="block">Method<select className={`${input} w-full`} value={form.mode} onChange={(e) => update('mode', e.target.value)}><option value="ensemble">Ensemble-supported discrimination + parameter contrast</option><option value="parameter">Parameter contrast only (no references)</option></select></label>
+      <ModelPairBatchOptions models={context.models} enabled={batchEnabled} onEnabled={setBatchEnabled} ids={batchIds} onIds={setBatchIds}
+        references={form.mode === 'ensemble' ? modelReferences : undefined} samples={referenceOptions} onReferences={(id, refs) => setModelReferences((prev) => ({ ...prev, [id]: refs }))} />
+      {!batchEnabled && <>
       <div className="grid gap-4 md:grid-cols-2">{['a', 'b'].map((side) => <div className="space-y-3" key={side}><label className="block">Model {side.toUpperCase()}<select className={`${input} w-full`} required value={form[`model_${side}_id`]} onChange={(e) => changeModel(side, e.target.value)}><option value="">Choose model</option>{context.models.map((m) => <option key={m.model_id} value={m.model_id}>{m.name}</option>)}</select></label>
         {form.mode === 'ensemble' && <MultiSelect title={`Endpoint ${side.toUpperCase()} reference MDs`} options={referenceOptions} value={form[`reference_${side}`]} onChange={(value) => update(`reference_${side}`, value)} />}</div>)}</div>
+      </>}
       {form.mode === 'ensemble' && <><MultiSelect title="Additional ensembles for preference coloring (optional)" options={context.samples} value={form.sample_ids} onChange={(value) => update('sample_ids', value)} />
         <div className="grid gap-3 md:grid-cols-3">{[['block_length', 'Block length (frames)', 1], ['bootstrap', 'Bootstrap replicates (0 or ≥50)', 0], ['seed', 'Random seed', 0]].map(([key, label, min]) => <label className="text-sm" key={key}>{label}<input required className={`${input} w-full`} type="number" min={min} max={key === 'bootstrap' ? 5000 : undefined} value={form[key]} onChange={(e) => update(key, Number(e.target.value))} /></label>)}</div>
         <p className="text-xs text-gray-400">Use blocks longer than the correlation times of interest; repeat with different block lengths. Confidence intervals describe fixed-model sampling uncertainty only. Short references may have unavailable intervals.</p></>}
-      <button disabled={submitting || form.model_a_id === form.model_b_id || (form.mode === 'ensemble' && (!form.reference_a.length || !form.reference_b.length))} className="rounded bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{submitting ? 'Submitting...' : 'Run analysis'}</button>
+      <button disabled={submitting || (batchEnabled ? batchIds.length < 2 || (form.mode === 'ensemble' && batchIds.some((id) => !modelReferences[id]?.length)) : form.model_a_id === form.model_b_id || (form.mode === 'ensemble' && (!form.reference_a.length || !form.reference_b.length)))} className="rounded bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{submitting ? 'Submitting...' : 'Run analysis'}</button>
     </form></div>}
   </div>;
 }

@@ -12,6 +12,31 @@ Open **Model-pair analysis**, then **Discriminative hotspots**. Select the clust
 
 Select two different **full or combined** models from the same cluster. A raw delta patch is a correction, not a full endpoint, and is rejected. Models must use the same categorical alphabets and residue ordering. Available residue-key/cluster metadata are checked; old model files without keys necessarily assume the selected cluster's categorical basis. Do not compare independently reclustered models even if their alphabet sizes happen to match.
 
+### Advanced: All Model Pairs
+
+In **New analysis → Advanced: compare multiple models**, enable **Run all unique
+model pairs** and select two or more models. Selecting A, B and C creates three
+independent analyses: A–B, A–C and B–C. For N models there are N(N−1)/2 jobs;
+the dialog previews their orientation and count. The earlier selected model is
+endpoint A, so delta energy always means E(A) − E(B).
+
+In ensemble mode, check/edit the reference MDs **for each model**. Each pair
+uses those two models' respective reference groups; do not reuse one fixed A/B
+reference group for every pair. Overlapping/invalid reference groups still fail
+the normal validation. Additional ensembles and bootstrap settings are shared.
+Jobs are queued independently and work with one worker; a failed pair does not
+cancel the others. Batch progress tracks all jobs, and each successful result
+is listed separately in Available analyses. Failed submissions are reported.
+
+The interactive console offers the same advanced multi-model prompt before
+asking for the remaining parameters, and asks for references once per model.
+For a noninteractive run, use `--model-ids a,b,c` instead of `--model-a-id` and
+`--model-b-id`, with optional repeated `--model-reference a:md_a1,md_a2`,
+`--model-reference b:md_b` and `--model-reference c:md_c` arguments. Omitted
+per-model reference selections use the existing model-state inference, which
+can be ambiguous; explicit references are preferable. Local pairs run in order,
+retain successful results on failure and exit nonzero if any pair failed.
+
 Two analysis modes:
 
 - **Parameter contrast only** needs no trajectories. Use it as a first-pass screen.

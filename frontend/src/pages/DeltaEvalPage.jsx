@@ -6,6 +6,8 @@ import Plot from 'react-plotly.js';
 import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/common/ErrorMessage';
 import HelpDrawer from '../components/common/HelpDrawer';
+import ModelPairBatchOptions from '../components/common/ModelPairBatchOptions';
+import { modelPairs, submitModelPairs, fetchPairJobStatus } from '../utils/modelPairs';
 import EnergyDistributionPlot, {
   EnergySeriesSelectorButton,
   buildEnergyDistributionPlot,
@@ -282,6 +284,9 @@ export default function DeltaEvalPage() {
 
   const [modelAId, setModelAId] = useState('');
   const [modelBId, setModelBId] = useState('');
+  const [batchEnabled, setBatchEnabled] = useState(false);
+  const [batchIds, setBatchIds] = useState([]);
+  const [submittingPairs, setSubmittingPairs] = useState(false);
   const [mdLabelMode, setMdLabelMode] = useState('assigned');
   const [keepInvalid, setKeepInvalid] = useState(false);
   const [topKEdges, setTopKEdges] = useState(2000);
@@ -604,14 +609,13 @@ export default function DeltaEvalPage() {
     let cancelled = false;
     const timer = setInterval(async () => {
       try {
-        const status = await fetchJobStatus(job.job_id);
+        const status = await fetchPairJobStatus(job.jobs || [job], fetchJobStatus);
         if (cancelled) return;
         setJobStatus(status);
-        if (['finished', 'failed', 'canceled'].includes(String(status?.status || ''))) {
+        if (['finished', 'failed', 'stopped', 'canceled'].includes(String(status?.status || ''))) {
           clearInterval(timer);
-          if (status?.status === 'finished') {
-            await loadAnalyses();
-          }
+          await loadAnalyses();
+          if (status.status !== 'finished') setJobError(status.meta?.error || 'Analysis job failed.');
         }
       } catch (err) {
         if (!cancelled) setJobError(err.message || 'Failed to poll job.');
@@ -653,6 +657,7 @@ export default function DeltaEvalPage() {
 
   const handleRun = useCallback(async () => {
     setJobError(null);
+    setSubmittingPairs(true);
     try {
       const basePayload = {
         project_id: projectId,
@@ -671,23 +676,28 @@ export default function DeltaEvalPage() {
           if (limit > 0) frameLimits[sid] = limit;
         }
       });
-      const res = activeTab === 'delta_energy' ? await submitDeltaEnergyJob({
+      const pairs = modelPairs(activeTab === 'delta_energy' && batchEnabled ? batchIds.filter((id) => deltaModels.some((m) => m.model_id === id)) : [modelAId, modelBId]);
+      const result = await submitModelPairs(pairs, (a, b) => activeTab === 'delta_energy' ? submitDeltaEnergyJob({
         ...basePayload,
+        model_a_id: a, model_b_id: b,
         frame_limits: frameLimits,
         seed: Math.max(0, Number(deltaEnergySeed) || 0),
         energy_bins: Math.max(5, Number(deltaEnergyBins) || 80),
         workers: Math.max(0, Number(workers) || 0),
-      }) : await submitEndpointFrustrationJob({
+      }) : submitEndpointFrustrationJob({
         ...basePayload,
         top_k_edges: Number(topKEdges),
         workers: Math.max(0, Number(workers) || 0),
-      });
-      setJob(res);
-      setJobStatus(null);
-      setRunPanelOpen(false);
+      }));
+      if (result.jobs.length) {
+        setJob({ job_id: result.jobs[0].job_id, jobs: result.jobs });
+        setJobStatus(null);
+        setRunPanelOpen(false);
+      }
+      if (result.errors.length) setJobError(`Some pairs could not be submitted: ${result.errors.join('; ')}`);
     } catch (err) {
       setJobError(err.message || 'Failed to submit analysis job.');
-    }
+    } finally { setSubmittingPairs(false); }
   }, [
     activeTab,
     projectId,
@@ -695,6 +705,7 @@ export default function DeltaEvalPage() {
     selectedClusterId,
     modelAId,
     modelBId,
+    batchEnabled, batchIds, deltaModels,
     selectedSampleIds,
     mdLabelMode,
     keepInvalid,
@@ -1030,6 +1041,8 @@ export default function DeltaEvalPage() {
                   ))}
                 </select>
               </div>
+              {activeTab === 'delta_energy' && <ModelPairBatchOptions models={deltaModels} enabled={batchEnabled} onEnabled={setBatchEnabled} ids={batchIds} onIds={setBatchIds} />}
+              {!(activeTab === 'delta_energy' && batchEnabled) &&
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Model A</label>
@@ -1043,7 +1056,7 @@ export default function DeltaEvalPage() {
                     {deltaModels.map((model) => <option key={`modal-b:${model.model_id}`} value={model.model_id}>{model.name || model.model_id}</option>)}
                   </select>
                 </div>
-              </div>
+              </div>}
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                   <label className="block text-xs text-gray-400">Samples to analyze</label>
@@ -1116,7 +1129,7 @@ export default function DeltaEvalPage() {
                 <input type="checkbox" checked={keepInvalid} onChange={(e) => setKeepInvalid(e.target.checked)} className="h-4 w-4 text-cyan-500 rounded border-gray-700 bg-gray-950" />
                 Keep invalid frames
               </label>
-              <button type="button" onClick={handleRun} disabled={!selectedClusterId || !modelAId || !modelBId || !selectedSampleIds.length} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-cyan-500 text-black font-semibold disabled:opacity-50">
+              <button type="button" onClick={handleRun} disabled={submittingPairs || !selectedClusterId || !selectedSampleIds.length || (activeTab === 'delta_energy' && batchEnabled ? batchIds.filter((id) => deltaModels.some((m) => m.model_id === id)).length < 2 : !modelAId || !modelBId || modelAId === modelBId)} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-cyan-500 text-black font-semibold disabled:opacity-50">
                 <Play className="h-4 w-4" />
                 Run analysis
               </button>
@@ -1295,7 +1308,7 @@ export default function DeltaEvalPage() {
             <button
               type="button"
               onClick={handleRun}
-              disabled={!selectedClusterId || !modelAId || !modelBId || !selectedSampleIds.length}
+              disabled={submittingPairs || !selectedClusterId || !selectedSampleIds.length || (activeTab === 'delta_energy' && batchEnabled ? batchIds.filter((id) => deltaModels.some((m) => m.model_id === id)).length < 2 : !modelAId || !modelBId || modelAId === modelBId)}
               className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-cyan-500 text-black font-semibold disabled:opacity-50"
             >
               <Play className="h-4 w-4" />

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from phase.potts.analysis_run import upsert_delta_energy_analysis
+from phase.potts.model_pairs import model_pairs, run_model_pairs
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -15,8 +16,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--project-id", required=True)
     ap.add_argument("--system-id", required=True)
     ap.add_argument("--cluster-id", required=True)
-    ap.add_argument("--model-a-id", required=True)
-    ap.add_argument("--model-b-id", required=True)
+    ap.add_argument("--model-a-id")
+    ap.add_argument("--model-b-id")
+    ap.add_argument("--model-ids", help="Advanced: comma-separated models; run every unique pair in selection order.")
     ap.add_argument("--sample-ids", required=True, help="Comma-separated sample ids, sample names, or MD state names to analyze.")
     ap.add_argument("--md-label-mode", default="assigned", choices=["assigned", "halo"])
     ap.add_argument("--keep-invalid", action="store_true", help="Keep invalid frames instead of dropping them.")
@@ -47,6 +49,11 @@ def _parse_frame_limits(items: list[str]) -> dict[str, int]:
 def main(argv: list[str] | None = None) -> int:
     ap = _build_parser()
     args = ap.parse_args(argv)
+
+    try:
+        pairs = model_pairs(args.model_ids.split(',') if args.model_ids else None, args.model_a_id, args.model_b_id)
+    except ValueError as exc:
+        ap.error(str(exc))
 
     root = (args.root or os.getenv("PHASE_DATA_ROOT") or "").strip()
     if not root:
@@ -81,33 +88,37 @@ def main(argv: list[str] | None = None) -> int:
         progress_bar.n = min(current_i, total_i)
         progress_bar.refresh()
 
-    try:
-        out = upsert_delta_energy_analysis(
-            project_id=str(args.project_id),
-            system_id=str(args.system_id),
-            cluster_id=str(args.cluster_id),
-            model_a_ref=str(args.model_a_id),
-            model_b_ref=str(args.model_b_id),
-            sample_ids=sample_ids,
-            md_label_mode=str(args.md_label_mode),
-            drop_invalid=not bool(args.keep_invalid),
-            frame_limits=frame_limits,
-            seed=int(args.seed),
-            energy_bins=int(args.energy_bins),
-            n_workers=(int(args.workers) if int(args.workers) > 0 else None),
-            progress_callback=progress_cb if args.progress else None,
-        )
-    finally:
-        if progress_bar is not None and progress_bar is not False:
-            progress_bar.close()
-    meta = out.get("metadata") or {}
-    print(f"[delta_energy] analysis_id={meta.get('analysis_id')}")
-    print(f"[delta_energy] analysis_npz={out.get('analysis_npz')}")
-    summary = meta.get("summary", {}) if isinstance(meta.get("summary"), dict) else {}
-    print(f"[delta_energy] requested_refs={len(sample_ids)} resolved_samples={summary.get('n_samples', len(sample_ids))} workers={summary.get('workers_used')}")
-    if summary.get("sample_ids"):
-        print(f"[delta_energy] sample_ids={','.join(map(str, summary.get('sample_ids') or []))}")
-    return 0
+    def run(a, b):
+        nonlocal progress_bar
+        progress_bar = None
+        try:
+            out = upsert_delta_energy_analysis(
+                project_id=str(args.project_id),
+                system_id=str(args.system_id),
+                cluster_id=str(args.cluster_id),
+                model_a_ref=a,
+                model_b_ref=b,
+                sample_ids=sample_ids,
+                md_label_mode=str(args.md_label_mode),
+                drop_invalid=not bool(args.keep_invalid),
+                frame_limits=frame_limits,
+                seed=int(args.seed),
+                energy_bins=int(args.energy_bins),
+                n_workers=(int(args.workers) if int(args.workers) > 0 else None),
+                progress_callback=progress_cb if args.progress else None,
+            )
+        finally:
+            if progress_bar is not None and progress_bar is not False:
+                progress_bar.close()
+        meta = out.get("metadata") or {}
+        print(f"[delta_energy] analysis_id={meta.get('analysis_id')}")
+        print(f"[delta_energy] analysis_npz={out.get('analysis_npz')}")
+        summary = meta.get("summary", {}) if isinstance(meta.get("summary"), dict) else {}
+        print(f"[delta_energy] requested_refs={len(sample_ids)} resolved_samples={summary.get('n_samples', len(sample_ids))} workers={summary.get('workers_used')}")
+        if summary.get("sample_ids"):
+            print(f"[delta_energy] sample_ids={','.join(map(str, summary.get('sample_ids') or []))}")
+    return run_model_pairs(pairs, run)
+
 
 
 if __name__ == "__main__":

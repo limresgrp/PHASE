@@ -31,6 +31,27 @@ test('reference is immutable once states exist and partial details name missing 
   expect(screen.getByText(/Missing coordinates \(masked in descriptors and energies\): res_45A/)).toBeInTheDocument();
 });
 
+test('a PDB in the reference trajectory field switches to aligned structure upload', async () => {
+  requestJSON.mockResolvedValueOnce({ identity: 1, alignment_status: 'aligned', correspondence: [] })
+    .mockResolvedValueOnce({ states: {} });
+  render(<ReferenceStructurePanel projectId="p" systemId="s" system={system} onChanged={jest.fn()} />);
+  fireEvent.click(screen.getByText('+ Add state / replica'));
+  fireEvent.change(screen.getByLabelText('State name'), { target: { value: 'Crystal' } });
+  const file = new File(['ATOM'], 'crystal.pdb');
+  fireEvent.change(screen.getByLabelText('Optional trajectory (must match this topology)'), { target: { files: [file] } });
+  expect(screen.getByLabelText('Topology')).toHaveValue('upload');
+  expect(screen.getByText('Create selected state(s)')).toBeDisabled();
+  fireEvent.click(screen.getByText('Preview alignment(s)'));
+  await waitFor(() => expect(screen.getByText('Create selected state(s)')).toBeEnabled());
+  expect(requestJSON.mock.calls[0][1].body.get('pdb')).toBe(file);
+  fireEvent.click(screen.getByText('Create selected state(s)'));
+  await waitFor(() => expect(requestJSON).toHaveBeenCalledTimes(2));
+  const payload = requestJSON.mock.calls[1][1].body;
+  expect(payload.get('pdb')).toBe(file);
+  expect(payload.has('trajectory')).toBe(false);
+  expect(payload.has('use_reference')).toBe(false);
+});
+
 test('creation builds by default and queues assignment only for newly created states', async () => {
   const onChanged = jest.fn();
   requestJSON.mockResolvedValueOnce({ states: { old: { state_id: 'old', descriptor_file: 'old.npz' }, fresh: { state_id: 'fresh', descriptor_file: 'fresh.npz' } } })

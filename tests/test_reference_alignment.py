@@ -180,6 +180,48 @@ def test_download_validation_and_404_fallback_are_offline(tmp_path, monkeypatch)
     assert urls == ["https://files.rcsb.org/download/1ABC.pdb", "https://files.rcsb.org/download/1ABC.cif"]
 
 
+@pytest.mark.parametrize("suffix", [".pdb", ".ent"])
+def test_independent_pdb_in_trajectory_slot_gets_own_aligned_topology(reference_system, tmp_path, suffix):
+    store, _ = reference_system
+    target = pdb(tmp_path / f"partial{suffix}", "ACDEGHIKLMNPQRSTVWY", start=108, chain="B")
+    state = create_reference_state(store, "p", "s", name="Uploaded pose", trajectory=target,
+                                   build_descriptors=True)
+    assert state.alignment_status == "partial"
+    assert state.n_frames == 1
+    assert state.reference_alignment["target_chain"] == "B"
+    assert state.reference_alignment["missing_selected_residues"] == ["res_12"]
+    assert store.resolve_path("p", "s", state.pdb_file).read_bytes() == target.read_bytes()
+    assert state.residue_mapping["res_9"] == "resindex 1"
+    with np.load(store.resolve_path("p", "s", state.descriptor_file)) as data:
+        assert np.isnan(data["res_12"]).all()
+
+
+def test_independent_multimodel_pdb_uses_only_its_frames(reference_system, tmp_path):
+    store, _ = reference_system
+    target = pdb(tmp_path / "ensemble.pdb", "ACDEFGHIKLMNPQRSTVWY", start=108)
+    frame = target.read_text()
+    target.write_text(f"MODEL        1\n{frame}ENDMDL\nMODEL        2\n{frame}ENDMDL\nEND\n")
+    state = create_reference_state(store, "p", "s", name="PDB ensemble", trajectory=target,
+                                   build_descriptors=True)
+    assert state.n_frames == 2
+    assert state.alignment_status == "aligned"
+
+
+def test_explicit_topology_still_rejects_incompatible_pdb_trajectory(reference_system, tmp_path):
+    from phase.workflows.reference_states import attach_trajectory
+    store, ref = reference_system
+    target = pdb(tmp_path / "shifted.pdb", "ACDEFGHIKLMNPQRSTVWY", start=108)
+    state = create_reference_state(store, "p", "s", name="Reference")
+    with pytest.raises(ValueError, match="Trajectory topology/atom ordering"):
+        create_reference_state(store, "p", "s", name="Wrong replica", source_state_id=state.state_id,
+                               trajectory=target)
+    with pytest.raises(ValueError, match="Trajectory topology/atom ordering"):
+        create_reference_state(store, "p", "s", name="Wrong pair", pdb_path=ref, trajectory=target)
+    with pytest.raises(ValueError, match="Trajectory topology/atom ordering"):
+        attach_trajectory(store, "p", "s", state.state_id, target)
+    assert len(store.get_system("p", "s").states) == 1
+
+
 def test_trajectory_replacement_invalidates_descriptors_and_uses_only_traj(reference_system, tmp_path):
     import MDAnalysis as mda
     from phase.workflows.reference_states import attach_trajectory

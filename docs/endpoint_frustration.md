@@ -79,6 +79,22 @@ Interpretation:
 
 The web page shows these values on the `Delta energy distributions` tab. Histogram bars are kept neutral gray; the fitted/smoothed distribution curves carry the sample colors. A display toggle can show either histograms plus fitted curves or fitted curves only. The trajectory selector also controls each curve's color and line style and can add a vertical marker at the fitted-curve maximum. Peak-marker dash and height are configurable; a blank height uses 110% of the tallest displayed curve. When launching this analysis, each selected trajectory can use all frames or a random subset with a per-trajectory frame limit.
 
+In the new delta-energy analysis dialog, **Advanced: compare multiple models →
+Run all unique model pairs** creates a separate ordinary analysis for every
+unique pair. A, B, C generates A–B, A–C, B–C; N models generate N(N−1)/2 jobs.
+The preview shows orientation: earlier selected model = A, later = B,
+and ΔE = E(A) − E(B). Trajectories, frame limits, random seed and other settings
+are reused for every pair. Web jobs queue independently (one worker suffices),
+with aggregate progress; failures do not cancel successful or pending pairs.
+Existing analysis storage, display and deletion remain independent per pair.
+The advanced setting applies to delta-energy, not commitment/frustration runs.
+
+The `phase_console` delta-energy command offers the same advanced multi-model
+prompt. Direct CLI usage accepts `--model-ids a,b,c` instead of
+`--model-a-id a --model-b-id b`. Local pairs run sequentially, using the existing
+within-pair worker setting; all pairs are attempted and a nonzero exit status
+reports any failures. Existing single-pair invocations are unchanged.
+
 A single analyzed frame is drawn as a vertical line at its exact delta energy,
 not a histogram or fitted density. Its height matches the tallest displayed
 distribution (including histogram bars when enabled), so it does not inflate

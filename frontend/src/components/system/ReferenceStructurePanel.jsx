@@ -46,7 +46,14 @@ export default function ReferenceStructurePanel({ projectId, systemId, system, o
   const states = Object.values(system.states || {});
   const clusters = (system.metastable_clusters || []).filter((run) => run.path && !['failed', 'queued', 'running', 'started'].includes(run.status));
   const base = `/projects/${encodeURIComponent(projectId)}/systems/${encodeURIComponent(systemId)}`;
-  const open = (kind) => { setModal(kind); setPdb(null); setPreview(null); setError(''); setBatch([]); setChain(''); setSelectedIds([]); setBuild(true); setClusterIds([]); setAssignmentStateIds([]); };
+  const open = (kind) => { setModal(kind); setPdb(null); setTrajectory(null); setSlice(''); setSource('reference'); setPreview(null); setError(''); setBatch([]); setChain(''); setSelectedIds([]); setBuild(true); setClusterIds([]); setAssignmentStateIds([]); };
+  const selectTrajectory = (file) => {
+    if (source === 'reference' && file && /\.(pdb|ent)$/i.test(file.name)) {
+      setSource('upload'); setPdb(file); setTrajectory(null); setPreview(null);
+    } else {
+      setTrajectory(file);
+    }
+  };
   const queueAssignments = async (stateIds) => {
     if (!stateIds.length || !clusterIds.length) return;
     const jobs = [], errors = [];
@@ -129,10 +136,12 @@ export default function ReferenceStructurePanel({ projectId, systemId, system, o
           <label className="block text-xs">Topology<select className={field} value={source} onChange={(e) => { setSource(e.target.value); setPdb(null); setPreview(null); }}><option value="reference">Use reference structure as state</option><option value="upload">Upload another PDB (sequence alignment)</option>{states.map((state) => <option key={state.state_id} value={state.state_id}>New replica of {state.name}</option>)}</select></label>
         </>}
         {(modal === 'reference' || (modal === 'state' && source === 'upload')) && <label className="block text-xs">PDB file<input className={field} type="file" accept=".pdb,.ent" onChange={(e) => { setPdb(e.target.files?.[0]); setPreview(null); }} /></label>}
+        {modal === 'state' && source === 'upload' && pdb && <p className="text-xs">Selected PDB: {pdb.name}</p>}
         {(modal === 'reference' || modal === 'ids' || (modal === 'state' && source === 'upload')) && <label className="block text-xs">{modal === 'reference' ? 'Reference chain (blank = longest protein chain)' : 'Target chain (blank = best sequence match; specify to resolve ties)'}<input className={field} value={chain} onChange={(e) => { setChain(e.target.value); setPreview(null); setBatch([]); setSelectedIds([]); }} /></label>}
         {modal === 'reference' && <label className="block text-xs">Residue selection on reference (MDAnalysis)<input className={field} value={selection} onChange={(e) => setSelection(e.target.value)} placeholder="protein or resid 20 to 200" /></label>}
         {modal === 'state' && <>
-          <label className="block text-xs">Optional trajectory (must match this topology)<input className={field} type="file" onChange={(e) => setTrajectory(e.target.files?.[0] || null)} /></label>
+          <label className="block text-xs">Optional trajectory (must match this topology)<input className={field} type="file" onChange={(e) => selectTrajectory(e.target.files?.[0] || null)} /></label>
+          <p className="text-xs text-gray-400">Independent PDBs use Upload another PDB and sequence alignment. A PDB chosen here with the reference topology automatically switches to that workflow; preview its alignment before creating the state. Coordinate-only trajectories must match the selected topology.</p>
           <label className="block text-xs">Frame slice<input className={field} value={slice} onChange={(e) => setSlice(e.target.value)} placeholder="blank = all frames; ::10 = stride 10" /></label>
           {preview && <AlignmentDetails alignment={preview} status={preview.alignment_status} />}
         </>}

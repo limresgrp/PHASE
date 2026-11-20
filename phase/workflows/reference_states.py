@@ -164,12 +164,14 @@ def canonical_mapping(store, system, state):
 
 
 def validate_trajectory(topology, trajectory):
-    if Path(trajectory).suffix.lower() in {".pdb", ".gro"}:
+    if Path(trajectory).suffix.lower() in {".pdb", ".ent", ".gro"}:
         reference, target = mda.Universe(str(topology)), mda.Universe(str(trajectory))
         try:
             if len(reference.atoms) != len(target.atoms) or any(not np.array_equal(getattr(reference.atoms, key), getattr(target.atoms, key))
                     for key in ("names", "resids", "resnames")):
-                raise ValueError("Trajectory topology/atom ordering does not match the state's PDB.")
+                raise ValueError("Trajectory topology/atom ordering does not match the state's PDB. "
+                                 "Import an independent PDB as a new aligned state instead of attaching it "
+                                 "to an existing topology.")
         finally:
             reference.trajectory.close(); target.trajectory.close()
     universe = mda.Universe(str(topology), str(trajectory))
@@ -197,6 +199,11 @@ def create_reference_state(store, project_id, system_id, *, name, state_id=None,
         raise ValueError("Choose a new PDB or an existing topology, not both.")
     if source_state_id and source is None:
         raise ValueError("Source state does not exist.")
+    # A self-contained PDB supplied without an explicit topology is a new
+    # structure, not coordinates in the reference's atom order.
+    if not pdb_path and source is None and trajectory and Path(trajectory).suffix.lower() in {".pdb", ".ent"}:
+        pdb_path = trajectory
+        provenance = provenance or {"source": "upload", "original_filename": trajectory_source or Path(trajectory).name}
     metadata = None
     if pdb_path:
         metadata = preview_state_alignment(store, project_id, system_id, pdb_path, chain_id=chain_id, provenance=provenance)

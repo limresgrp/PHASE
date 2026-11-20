@@ -79,12 +79,24 @@ fi
 MODEL_LINES="$(_offline_list list-models --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID" || true)"
 MODEL_LINES="$(printf "%s\n" "$MODEL_LINES" | awk -F'|' -v cid="$CLUSTER_ID" '$4==cid')"
 [ -z "$(trim "$MODEL_LINES")" ] && echo "No Potts models found for cluster: $CLUSTER_ID" >&2 && exit 1
-MODEL_A_ROW="$(offline_choose_one "Select model A:" "$MODEL_LINES")"
-MODEL_A_ID="$(printf "%s" "$MODEL_A_ROW" | awk -F'|' '{print $1}')"
-MODEL_B_ROW="$(offline_choose_one "Select model B:" "$MODEL_LINES")"
-MODEL_B_ID="$(printf "%s" "$MODEL_B_ROW" | awk -F'|' '{print $1}')"
-[ -z "$MODEL_A_ID" ] || [ -z "$MODEL_B_ID" ] && echo "Model A and model B are required." >&2 && exit 1
-[ "$MODEL_A_ID" = "$MODEL_B_ID" ] && echo "Model A and model B must be different." >&2 && exit 1
+MODEL_ARGS=()
+BATCH_MODE=false
+if prompt_bool "Advanced: run all unique pairs of multiple models? (y/N)" "N"; then
+  BATCH_MODE=true
+  MODEL_ROWS="$(offline_choose_multi "Select models (each unique pair creates an independent analysis):" "$MODEL_LINES")"
+  MODEL_IDS="$(printf "%s\n" "$MODEL_ROWS" | awk -F'|' 'NF {print $1}' | awk '!seen[$0]++' | paste -sd',' -)"
+  [[ "$MODEL_IDS" == *,* ]] || { echo "Select at least two models." >&2; exit 1; }
+  MODEL_ARGS=(--model-ids "$MODEL_IDS")
+  echo "Pair orientation follows this model order: $MODEL_IDS"
+else
+  MODEL_A_ROW="$(offline_choose_one "Select model A:" "$MODEL_LINES")"
+  MODEL_A_ID="$(printf "%s" "$MODEL_A_ROW" | awk -F'|' '{print $1}')"
+  MODEL_B_ROW="$(offline_choose_one "Select model B:" "$MODEL_LINES")"
+  MODEL_B_ID="$(printf "%s" "$MODEL_B_ROW" | awk -F'|' '{print $1}')"
+  [ -z "$MODEL_A_ID" ] || [ -z "$MODEL_B_ID" ] && echo "Model A and model B are required." >&2 && exit 1
+  [ "$MODEL_A_ID" = "$MODEL_B_ID" ] && echo "Model A and model B must be different." >&2 && exit 1
+  MODEL_ARGS=(--model-a-id "$MODEL_A_ID" --model-b-id "$MODEL_B_ID")
+fi
 
 SAMPLE_LINES="$(_offline_list list-sampling --project-id "$OFFLINE_PROJECT_ID" --system-id "$OFFLINE_SYSTEM_ID" || true)"
 SAMPLE_LINES="$(printf "%s\n" "$SAMPLE_LINES" | awk -F'|' -v cid="$CLUSTER_ID" '$1==cid')"
@@ -133,8 +145,7 @@ CMD=(
   --project-id "$OFFLINE_PROJECT_ID"
   --system-id "$OFFLINE_SYSTEM_ID"
   --cluster-id "$CLUSTER_ID"
-  --model-a-id "$MODEL_A_ID"
-  --model-b-id "$MODEL_B_ID"
+  "${MODEL_ARGS[@]}"
   --sample-ids "$SAMPLE_IDS"
   --md-label-mode "$MD_LABEL_MODE"
   --energy-bins "$ENERGY_BINS"

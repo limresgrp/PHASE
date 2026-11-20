@@ -43,6 +43,22 @@ def test_reference_upload_preview_create_and_provenance(reference_system, tmp_pa
         assert cannot_change.status_code == 400
 
 
+def test_reference_trajectory_pdb_is_aligned_as_independent_structure(reference_system, tmp_path, monkeypatch):
+    store, _ = reference_system
+    monkeypatch.setattr(states, "project_store", store)
+    app = FastAPI()
+    app.include_router(states.router)
+    target = pdb(tmp_path / "crystal.pdb", "ACDEGHIKLMNPQRSTVWY", start=108, chain="B")
+    with TestClient(app) as http:
+        response = http.post("/projects/p/systems/s/states", data={"name": "Crystal", "use_reference": "true"},
+                             files={"trajectory": ("crystal.pdb", target.read_bytes())})
+        assert response.status_code == 200, response.text
+        state = next(iter(response.json()["states"].values()))
+        assert state["alignment_status"] == "partial"
+        assert state["n_frames"] == 1
+        assert store.get_system("p", "s").states[state["state_id"]].descriptor_file
+
+
 def test_ambiguous_api_state_does_not_register(reference_system, tmp_path, monkeypatch):
     store, ref = reference_system
     monkeypatch.setattr(states, "project_store", store)
